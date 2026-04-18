@@ -29,3 +29,24 @@ export interface BacktestResult {
   portfolioHistory: PortfolioDataPoint[]
   assetReturns: Record<string, number>
 }
+
+// Database types
+export interface DbUser {
+  id: string
+  created_at: string
+}
+
+export interface DbBacktest {
+  id: string
+  user_id: string
+  assets: { symbol: string; weight: number }[]
+  start_date: string
+  end_date: string
+  initial_investment: number
+  total_return: number | null
+  annualized_return: number | null
+  volatility: number | null
+  sharpe_ratio: number | null
+  max_drawdown: number | null
+  created_at: string
+}
