@@ -19,8 +19,10 @@ async function fetchHistoricalPrices(
   const response = await fetch(url)
   const data: AlphaVantageData = await response.json()
   
+  console.log(`[v0] Alpha Vantage response for ${symbol}:`, JSON.stringify(data).substring(0, 200))
+  
   if (data.Note) {
-    throw new Error('Alpha Vantage API rate limit exceeded. Please wait and try again.')
+    throw new Error('Alpha Vantage API rate limit exceeded. Please wait 60 seconds and try again.')
   }
   
   if (data['Error Message']) {
@@ -28,8 +30,9 @@ async function fetchHistoricalPrices(
   }
   
   const timeSeries = data['Time Series (Daily)']
-  if (!timeSeries) {
-    throw new Error(`No data found for symbol: ${symbol}`)
+  if (!timeSeries || Object.keys(timeSeries).length === 0) {
+    console.log(`[v0] No time series data for ${symbol}. Available keys:`, Object.keys(data))
+    throw new Error(`No data found for symbol: ${symbol}. This could be due to API rate limiting. Please wait and try again.`)
   }
   
   const prices = new Map<string, number>()
@@ -40,6 +43,8 @@ async function fetchHistoricalPrices(
       prices.set(date, parseFloat(values['4. close']))
     }
   }
+  
+  console.log(`[v0] Found ${prices.size} prices for ${symbol} in date range`)
   
   return prices
 }
