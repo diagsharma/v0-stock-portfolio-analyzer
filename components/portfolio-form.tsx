@@ -29,6 +29,7 @@ export function PortfolioForm({ onSubmit, isLoading }: PortfolioFormProps) {
     to: new Date(),
   })
   const [initialInvestment, setInitialInvestment] = useState(10000)
+  const [name, setName] = useState('')
 
   const totalWeight = assets.reduce((sum, a) => sum + a.weight, 0)
   const isValidWeight = Math.abs(totalWeight - 100) < 0.01
@@ -55,6 +56,7 @@ export function PortfolioForm({ onSubmit, isLoading }: PortfolioFormProps) {
     if (validAssets.length === 0) return
 
     onSubmit({
+      name: name.trim() || undefined,
       assets: validAssets,
       startDate: dateRange.from.toISOString().split('T')[0],
       endDate: dateRange.to.toISOString().split('T')[0],
@@ -72,6 +74,20 @@ export function PortfolioForm({ onSubmit, isLoading }: PortfolioFormProps) {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="portfolio-name" className="text-foreground">
+              Name (optional)
+            </Label>
+            <Input
+              id="portfolio-name"
+              type="text"
+              placeholder="e.g. Balanced 60/40"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="bg-input"
+            />
+          </div>
+
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <Label className="text-foreground">Assets</Label>

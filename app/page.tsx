@@ -1,22 +1,23 @@
 'use client'
 
 import { useState } from 'react'
+import { useSWRConfig } from 'swr'
 import { PortfolioForm } from '@/components/portfolio-form'
 import { ResultsDashboard } from '@/components/results-dashboard'
+import { BacktestHistory } from '@/components/backtest-history'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertCircle, TrendingUp } from 'lucide-react'
-import type { BacktestRequest, BacktestResult } from '@/lib/types'
+import type { BacktestRequest, BacktestRecord } from '@/lib/types'
 
 export default function Home() {
-  const [result, setResult] = useState<BacktestResult | null>(null)
+  const [record, setRecord] = useState<BacktestRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [lastRequest, setLastRequest] = useState<BacktestRequest | null>(null)
+  const { mutate } = useSWRConfig()
 
   const runBacktest = async (request: BacktestRequest) => {
     setIsLoading(true)
     setError(null)
-    setLastRequest(request)
 
     try {
       const response = await fetch('/api/backtest', {
@@ -31,14 +32,19 @@ export default function Home() {
         throw new Error(data.error || 'Failed to run backtest')
       }
 
-      setResult(data)
+      setRecord(data as BacktestRecord)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred')
-      setResult(null)
+      setRecord(null)
     } finally {
       setIsLoading(false)
+      // Refresh the saved-runs list so the new run appears immediately.
+      mutate('/api/backtests')
     }
   }
+
+  const showResults =
+    record && record.status === 'completed' && record.metrics && record.portfolioHistory && record.assetReturns
 
   return (
     <main className="min-h-screen bg-background">
@@ -48,7 +54,7 @@ export default function Home() {
             <div className="p-2 rounded-lg bg-primary/10">
               <TrendingUp className="h-6 w-6 text-primary" />
             </div>
-            <h1 className="text-3xl font-bold text-foreground">
+            <h1 className="text-3xl font-bold text-foreground text-balance">
               Portfolio Backtester
             </h1>
           </div>
@@ -58,8 +64,9 @@ export default function Home() {
         </header>
 
         <div className="grid lg:grid-cols-[400px_1fr] gap-8">
-          <aside>
+          <aside className="space-y-6">
             <PortfolioForm onSubmit={runBacktest} isLoading={isLoading} />
+            <BacktestHistory onSelect={setRecord} selectedId={record?.id} />
           </aside>
 
           <section className="space-y-6">
@@ -71,21 +78,25 @@ export default function Home() {
               </Alert>
             )}
 
-            {result && lastRequest && (
+            {showResults && (
               <ResultsDashboard
-                result={result}
-                initialInvestment={lastRequest.initialInvestment}
+                result={{
+                  metrics: record.metrics!,
+                  portfolioHistory: record.portfolioHistory!,
+                  assetReturns: record.assetReturns!,
+                }}
+                initialInvestment={record.initialInvestment}
               />
             )}
 
-            {!result && !error && !isLoading && (
+            {!showResults && !error && !isLoading && (
               <div className="flex items-center justify-center h-[400px] rounded-lg border border-dashed border-border bg-card/50">
                 <div className="text-center">
                   <TrendingUp className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                   <h3 className="text-lg font-medium text-foreground mb-2">
                     No Backtest Results Yet
                   </h3>
-                  <p className="text-muted-foreground max-w-sm">
+                  <p className="text-muted-foreground max-w-sm text-pretty">
                     Configure your portfolio allocation and date range, then click
                     &ldquo;Run Backtest&rdquo; to see historical performance.
                   </p>

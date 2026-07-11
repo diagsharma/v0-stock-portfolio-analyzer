@@ -5,6 +5,7 @@ export interface Asset {
 }
 
 export interface BacktestRequest {
+  name?: string
   assets: Asset[]
   startDate: string
   endDate: string
@@ -28,4 +29,23 @@ export interface BacktestResult {
   metrics: BacktestMetrics
   portfolioHistory: PortfolioDataPoint[]
   assetReturns: Record<string, number>
+}
+
+export type BacktestStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
+
+// A saved backtest run as stored in Supabase.
+export interface BacktestRecord {
+  id: string
+  name: string | null
+  assets: Asset[]
+  startDate: string
+  endDate: string
+  initialInvestment: number
+  status: BacktestStatus
+  metrics: BacktestMetrics | null
+  portfolioHistory: PortfolioDataPoint[] | null
+  assetReturns: Record<string, number> | null
+  error: string | null
+  createdAt: string
+  updatedAt: string
 }

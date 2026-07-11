@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import type { BacktestRequest, BacktestResult, PortfolioDataPoint } from '@/lib/types'
+import { createClient } from '@/lib/supabase/server'
+import { mapRowToRecord } from '@/lib/backtests'
+import type { BacktestRequest, PortfolioDataPoint } from '@/lib/types'
 
 const ALPHA_VANTAGE_API_KEY = process.env.ALPHA_VANTAGE_API_KEY
 
@@ -114,7 +116,10 @@ function calculateMetrics(
   return { totalReturn, annualizedReturn, volatility, sharpeRatio, maxDrawdown }
 }
 
-export async function POST(request: Request): Promise<NextResponse<BacktestResult | { error: string }>> {
+export async function POST(request: Request) {
+  const supabase = await createClient()
+  let backtestId: string | null = null
+
   try {
     if (!ALPHA_VANTAGE_API_KEY) {
       return NextResponse.json(
@@ -122,10 +127,10 @@ export async function POST(request: Request): Promise<NextResponse<BacktestResul
         { status: 500 }
       )
     }
-    
-    const body: BacktestRequest = await request.json()
-    const { assets, startDate, endDate, initialInvestment } = body
-    
+
+    const body: BacktestRequest & { name?: string } = await request.json()
+    const { assets, startDate, endDate, initialInvestment, name } = body
+
     const totalWeight = assets.reduce((sum, a) => sum + a.weight, 0)
     if (Math.abs(totalWeight - 100) > 0.01) {
       return NextResponse.json(
@@ -133,68 +138,108 @@ export async function POST(request: Request): Promise<NextResponse<BacktestResul
         { status: 400 }
       )
     }
-    
+
+    // Create the run record up front with an "in_progress" status so it shows
+    // up in history while the (potentially slow) data fetch is running.
+    const { data: created, error: insertError } = await supabase
+      .from('backtests')
+      .insert({
+        name: name || null,
+        assets,
+        start_date: startDate,
+        end_date: endDate,
+        initial_investment: initialInvestment,
+        status: 'in_progress',
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      return NextResponse.json({ error: insertError.message }, { status: 500 })
+    }
+    backtestId = created.id
+
     const startDateObj = new Date(startDate)
     const endDateObj = new Date(endDate)
-    
+
     const priceDataMap = new Map<string, Map<string, number>>()
-    
+
     for (const asset of assets) {
       const prices = await fetchHistoricalPrices(asset.symbol.toUpperCase(), startDateObj, endDateObj)
       priceDataMap.set(asset.symbol.toUpperCase(), prices)
       await new Promise(resolve => setTimeout(resolve, 300))
     }
-    
+
     const commonDates = getCommonDates(priceDataMap)
-    
+
     if (commonDates.length < 2) {
-      return NextResponse.json(
-        { error: 'Not enough overlapping data for the selected assets and date range' },
-        { status: 400 }
-      )
+      throw new Error('Not enough overlapping data for the selected assets and date range')
     }
-    
+
     const portfolioHistory: PortfolioDataPoint[] = []
     const assetReturns: Record<string, number> = {}
-    
+
     const firstDate = commonDates[0]
     const lastDate = commonDates[commonDates.length - 1]
-    
+
     for (const asset of assets) {
       const prices = priceDataMap.get(asset.symbol.toUpperCase())!
       const firstPrice = prices.get(firstDate)!
       const lastPrice = prices.get(lastDate)!
       assetReturns[asset.symbol.toUpperCase()] = ((lastPrice - firstPrice) / firstPrice) * 100
     }
-    
+
     for (const date of commonDates) {
       let portfolioValue = 0
-      
+
       for (const asset of assets) {
         const prices = priceDataMap.get(asset.symbol.toUpperCase())!
         const currentPrice = prices.get(date)!
         const firstPrice = prices.get(firstDate)!
-        
+
         const assetAllocation = (asset.weight / 100) * initialInvestment
         const shares = assetAllocation / firstPrice
         portfolioValue += shares * currentPrice
       }
-      
+
       portfolioHistory.push({
         date,
         value: Math.round(portfolioValue * 100) / 100
       })
     }
-    
+
     const metrics = calculateMetrics(portfolioHistory)
-    
-    return NextResponse.json({
-      metrics,
-      portfolioHistory,
-      assetReturns
-    })
+
+    // Persist the completed results.
+    const { data: completed, error: updateError } = await supabase
+      .from('backtests')
+      .update({
+        status: 'completed',
+        metrics,
+        portfolio_history: portfolioHistory,
+        asset_returns: assetReturns,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', backtestId)
+      .select()
+      .single()
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 })
+    }
+
+    return NextResponse.json(mapRowToRecord(completed))
   } catch (error) {
     const message = error instanceof Error ? error.message : 'An unexpected error occurred'
+
+    // Mark the run as failed so it is reflected in history.
+    if (backtestId) {
+      await supabase
+        .from('backtests')
+        .update({ status: 'failed', error: message, updated_at: new Date().toISOString() })
+        .eq('id', backtestId)
+    }
+
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
