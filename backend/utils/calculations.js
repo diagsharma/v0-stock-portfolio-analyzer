@@ -20,7 +20,11 @@ function calculateTotalReturn(prices) {
     return 0
   }
 
-  return ((last - first) / first) * 100
+  const percentChange = ((last - first) / first) * 100
+
+  // Round to 2 decimal places to avoid floating-point artifacts
+  // (e.g. 50.00000000000001) so exact comparisons like 50.0 hold.
+  return Math.round(percentChange * 100) / 100
 }
 
 module.exports = { calculateTotalReturn }
