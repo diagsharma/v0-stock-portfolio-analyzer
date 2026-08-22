@@ -11,7 +11,7 @@ Built to make backtesting approachable for students and first-time investors, wh
 otherwise choose between $12,000-a-year institutional terminals and untested
 advice from social media.
 
-**Live demo:** _not yet deployed — see [Deployment](#deployment)_
+**Live demo:** <https://v0-stock-portfolio-analyzer.vercel.app>
 **Demo video:** _to be added_
 
 ---
