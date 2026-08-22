@@ -12,6 +12,7 @@ otherwise choose between $12,000-a-year institutional terminals and untested
 advice from social media.
 
 **Live demo:** <https://v0-stock-portfolio-analyzer.vercel.app>
+**Engineering review:** <https://v0-stock-portfolio-analyzer.vercel.app/review.html> — purpose, architecture (C4), and design decisions
 **Demo video:** _to be added_
 
 ---
