@@ -1,60 +1,74 @@
 -- =============================================
--- Portfolio Backtester Database Schema
+-- Portfolio Backtester — optional storage schema
 -- =============================================
--- Run this in your Supabase SQL Editor (see instructions below)
+-- Saved history is NOT required to run the app. With the Supabase environment
+-- variables unset the app works normally and the History panel stays empty.
+-- Run this in the Supabase SQL Editor only if you want runs to persist.
+--
+-- Columns here match exactly what app/api/backtest/route.ts writes. An earlier
+-- version of this file declared a NOT NULL user_id and flat numeric metric
+-- columns, which meant every insert failed.
 
--- 1. Anonymous Users Table
--- Stores basic info for anonymous users (no auth required)
-create table if not exists public.users (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamptz default now() not null
-);
-
--- 2. Backtests Table
--- Stores each backtest run by a user
 create table if not exists public.backtests (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users(id) on delete cascade,
-  assets jsonb not null,              -- Array of {symbol, weight}
-  start_date date not null,
-  end_date date not null,
-  initial_investment numeric not null,
-  total_return numeric,
-  annualized_return numeric,
-  volatility numeric,
-  sharpe_ratio numeric,
-  max_drawdown numeric,
-  created_at timestamptz default now() not null
+  id                 uuid primary key default gen_random_uuid(),
+  name               text,
+  assets             jsonb       not null,   -- [{id, symbol, weight}]
+  start_date         date        not null,
+  end_date           date        not null,
+  initial_investment numeric     not null,
+  status             text        not null default 'completed'
+                       check (status in ('pending', 'in_progress', 'completed', 'failed')),
+  metrics            jsonb,                  -- {totalReturn, annualizedReturn, ...}
+  portfolio_history  jsonb,                  -- [{date, value}]
+  asset_returns      jsonb,                  -- {SYMBOL: percent}
+  error              text,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
 );
 
--- 3. Enable Row Level Security (RLS)
-alter table public.users enable row level security;
+create index if not exists idx_backtests_created_at
+  on public.backtests (created_at desc);
+
+-- Row Level Security
+--
+-- The app is anonymous by design: the brief puts user accounts out of scope, so
+-- there is no auth.uid() to scope rows against and every policy is open. If you
+-- later add Supabase Auth, add a user_id column referencing auth.users and
+-- replace `true` below with `auth.uid() = user_id`.
 alter table public.backtests enable row level security;
 
--- 4. RLS Policies for Users
--- Anyone can create a user (anonymous signup)
-create policy "Anyone can create a user"
-  on public.users for insert
-  with check (true);
+drop policy if exists "Anyone can read backtests"   on public.backtests;
+drop policy if exists "Anyone can insert backtests" on public.backtests;
+drop policy if exists "Anyone can update backtests" on public.backtests;
+drop policy if exists "Anyone can delete backtests" on public.backtests;
 
--- Users can only read their own row
-create policy "Users can read own data"
-  on public.users for select
-  using (true);
-
--- 5. RLS Policies for Backtests
--- Anyone can insert a backtest (we check user_id exists)
-create policy "Anyone can insert backtests"
-  on public.backtests for insert
-  with check (
-    exists (select 1 from public.users where id = user_id)
-  );
-
--- Anyone can read backtests for a valid user_id
 create policy "Anyone can read backtests"
-  on public.backtests for select
-  using (true);
+  on public.backtests for select using (true);
 
--- 6. Create index for faster lookups
-create index if not exists idx_backtests_user_id on public.backtests(user_id);
-create index if not exists idx_backtests_created_at on public.backtests(created_at desc);
+create policy "Anyone can insert backtests"
+  on public.backtests for insert with check (true);
+
+-- UPDATE and DELETE policies were missing previously, so marking a run complete
+-- and deleting from the History panel both silently affected zero rows.
+create policy "Anyone can update backtests"
+  on public.backtests for update using (true) with check (true);
+
+create policy "Anyone can delete backtests"
+  on public.backtests for delete using (true);
+
+-- Keep updated_at current on every write.
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists backtests_set_updated_at on public.backtests;
+
+create trigger backtests_set_updated_at
+  before update on public.backtests
+  for each row execute function public.set_updated_at();
