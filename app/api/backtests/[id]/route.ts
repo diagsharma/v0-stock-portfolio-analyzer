@@ -8,6 +8,13 @@ export async function DELETE(
   const { id } = await params
   const supabase = await createClient()
 
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'History is not available without a configured database' },
+      { status: 503 }
+    )
+  }
+
   const { error } = await supabase.from('backtests').delete().eq('id', id)
 
   if (error) {

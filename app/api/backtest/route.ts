@@ -1,250 +1,213 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { mapRowToRecord } from '@/lib/backtests'
-import type { BacktestRequest, PortfolioDataPoint } from '@/lib/types'
+import type { Asset, PortfolioDataPoint } from '@/lib/types'
 
-const ALPHA_VANTAGE_API_KEY = process.env.ALPHA_VANTAGE_API_KEY
+import {
+  fetchMultipleTickers,
+} from '@/backend/services/marketData'
+import {
+  calculatePortfolioReturns,
+  calculateMetrics,
+} from '@/backend/utils/calculations'
+import {
+  validateTicker,
+  validateTickers,
+  validateDateRange,
+} from '@/backend/utils/validation'
 
-interface AlphaVantageData {
-  'Time Series (Daily)': Record<string, { '4. close': string }>
-  Note?: string
-  'Error Message'?: string
+const DEFAULT_BENCHMARK = 'SPY'
+
+interface BacktestBody {
+  name?: string
+  // The UI sends weighted assets; the documented API shape sends plain tickers.
+  assets?: Asset[]
+  tickers?: string[]
+  startDate: string
+  endDate: string
+  initialInvestment?: number
+  benchmark?: string
 }
 
-async function fetchHistoricalPrices(
-  symbol: string,
-  startDate: Date,
-  endDate: Date
-): Promise<Map<string, number>> {
-  const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&outputsize=full&apikey=${ALPHA_VANTAGE_API_KEY}`
-  
-  const response = await fetch(url)
-  const data: AlphaVantageData = await response.json()
-  
-  console.log(`[v0] Alpha Vantage response for ${symbol}:`, JSON.stringify(data).substring(0, 200))
-  
-  if (data.Note) {
-    throw new Error('Alpha Vantage API rate limit exceeded. Please wait 60 seconds and try again.')
-  }
-  
-  if (data['Error Message']) {
-    throw new Error(`Invalid symbol: ${symbol}`)
-  }
-  
-  const timeSeries = data['Time Series (Daily)']
-  if (!timeSeries || Object.keys(timeSeries).length === 0) {
-    console.log(`[v0] No time series data for ${symbol}. Available keys:`, Object.keys(data))
-    throw new Error(`No data found for symbol: ${symbol}. This could be due to API rate limiting. Please wait and try again.`)
-  }
-  
-  const prices = new Map<string, number>()
-  
-  for (const [date, values] of Object.entries(timeSeries)) {
-    const dateObj = new Date(date)
-    if (dateObj >= startDate && dateObj <= endDate) {
-      prices.set(date, parseFloat(values['4. close']))
+/**
+ * Accept either request shape and reduce both to a normalized form.
+ *
+ * The brief specifies {tickers: [...]} with equal weighting; the existing UI
+ * sends {assets: [{symbol, weight}]}, which is a superset. Supporting both
+ * keeps the documented contract while letting the current form keep its
+ * custom-weight feature.
+ */
+function normalizeRequest(body: BacktestBody) {
+  const rawSymbols = body.assets?.length
+    ? body.assets.map((a) => a.symbol)
+    : body.tickers ?? []
+
+  const tickers = validateTickers(rawSymbols)
+  const { startDate, endDate } = validateDateRange(body.startDate, body.endDate)
+  const benchmark = validateTicker(body.benchmark || DEFAULT_BENCHMARK)
+
+  let weights: Record<string, number> | undefined
+
+  if (body.assets?.length) {
+    const total = body.assets.reduce((sum, a) => sum + a.weight, 0)
+
+    if (Math.abs(total - 100) > 0.01) {
+      throw Object.assign(new Error('Asset weights must sum to 100%'), {
+        statusCode: 400,
+      })
+    }
+
+    weights = {}
+    for (const asset of body.assets) {
+      weights[asset.symbol.trim().toUpperCase()] = asset.weight
     }
   }
-  
-  console.log(`[v0] Found ${prices.size} prices for ${symbol} in date range`)
-  
-  return prices
+
+  const initialInvestment = Number(body.initialInvestment ?? 10000)
+
+  if (!Number.isFinite(initialInvestment) || initialInvestment <= 0) {
+    throw Object.assign(new Error('Initial investment must be a positive number'), {
+      statusCode: 400,
+    })
+  }
+
+  return { tickers, startDate, endDate, benchmark, weights, initialInvestment }
 }
 
-function getCommonDates(priceDataMap: Map<string, Map<string, number>>): string[] {
-  const allDates = new Set<string>()
-  const symbolDates: Set<string>[] = []
-  
-  for (const prices of priceDataMap.values()) {
-    const dates = new Set(prices.keys())
-    symbolDates.push(dates)
-    for (const date of dates) {
-      allDates.add(date)
-    }
-  }
-  
-  const commonDates = Array.from(allDates).filter(date =>
-    symbolDates.every(dates => dates.has(date))
-  )
-  
-  return commonDates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
-}
-
-function calculateMetrics(
-  portfolioHistory: PortfolioDataPoint[],
-  riskFreeRate = 0.04
-): { totalReturn: number; annualizedReturn: number; volatility: number; sharpeRatio: number; maxDrawdown: number } {
-  if (portfolioHistory.length < 2) {
-    return { totalReturn: 0, annualizedReturn: 0, volatility: 0, sharpeRatio: 0, maxDrawdown: 0 }
-  }
-  
-  const startValue = portfolioHistory[0].value
-  const endValue = portfolioHistory[portfolioHistory.length - 1].value
-  
-  const totalReturn = ((endValue - startValue) / startValue) * 100
-  
-  const startDateObj = new Date(portfolioHistory[0].date)
-  const endDateObj = new Date(portfolioHistory[portfolioHistory.length - 1].date)
-  const years = (endDateObj.getTime() - startDateObj.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
-  
-  const annualizedReturn = years > 0 ? (Math.pow(endValue / startValue, 1 / years) - 1) * 100 : 0
-  
-  const dailyReturns: number[] = []
-  for (let i = 1; i < portfolioHistory.length; i++) {
-    const dailyReturn = (portfolioHistory[i].value - portfolioHistory[i - 1].value) / portfolioHistory[i - 1].value
-    dailyReturns.push(dailyReturn)
-  }
-  
-  const meanReturn = dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length
-  const variance = dailyReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / dailyReturns.length
-  const dailyVolatility = Math.sqrt(variance)
-  const volatility = dailyVolatility * Math.sqrt(252) * 100
-  
-  const dailyRiskFreeRate = riskFreeRate / 252
-  const excessReturns = dailyReturns.map(r => r - dailyRiskFreeRate)
-  const meanExcessReturn = excessReturns.reduce((a, b) => a + b, 0) / excessReturns.length
-  const sharpeRatio = dailyVolatility > 0 ? (meanExcessReturn / dailyVolatility) * Math.sqrt(252) : 0
-  
-  let maxDrawdown = 0
-  let peak = portfolioHistory[0].value
-  
-  for (const point of portfolioHistory) {
-    if (point.value > peak) {
-      peak = point.value
-    }
-    const drawdown = ((peak - point.value) / peak) * 100
-    if (drawdown > maxDrawdown) {
-      maxDrawdown = drawdown
-    }
-  }
-  
-  return { totalReturn, annualizedReturn, volatility, sharpeRatio, maxDrawdown }
+/** Rescale a base-100 series into dollars for the results dashboard. */
+function toDollars(
+  series: { date: string; value: number }[],
+  initialInvestment: number
+): PortfolioDataPoint[] {
+  return series.map((point) => ({
+    date: point.date,
+    value: Math.round(point.value * initialInvestment) / 100,
+  }))
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  let backtestId: string | null = null
-
   try {
-    if (!ALPHA_VANTAGE_API_KEY) {
-      return NextResponse.json(
-        { error: 'Alpha Vantage API key not configured' },
-        { status: 500 }
+    const body: BacktestBody = await request.json()
+    const {
+      tickers,
+      startDate,
+      endDate,
+      benchmark,
+      weights,
+      initialInvestment,
+    } = normalizeRequest(body)
+
+    // One parallel batch for the portfolio plus the benchmark. The benchmark is
+    // only added when it is not already part of the portfolio.
+    const symbols = tickers.includes(benchmark) ? tickers : [...tickers, benchmark]
+    const priceData = await fetchMultipleTickers(symbols, { startDate, endDate })
+
+    const portfolioPrices = Object.fromEntries(
+      tickers.map((ticker) => [ticker, priceData[ticker]])
+    )
+
+    const portfolioSeries = calculatePortfolioReturns(
+      portfolioPrices,
+      startDate,
+      endDate,
+      weights
+    )
+
+    if (portfolioSeries.length < 2) {
+      throw Object.assign(
+        new Error(
+          'Not enough overlapping trading days for the selected assets and date range'
+        ),
+        { statusCode: 400 }
       )
     }
 
-    const body: BacktestRequest & { name?: string } = await request.json()
-    const { assets, startDate, endDate, initialInvestment, name } = body
+    const benchmarkSeries = calculatePortfolioReturns(
+      { [benchmark]: priceData[benchmark] },
+      startDate,
+      endDate
+    )
 
-    const totalWeight = assets.reduce((sum, a) => sum + a.weight, 0)
-    if (Math.abs(totalWeight - 100) > 0.01) {
-      return NextResponse.json(
-        { error: 'Asset weights must sum to 100%' },
-        { status: 400 }
-      )
-    }
+    const metrics = calculateMetrics(portfolioSeries)
+    const benchmarkMetrics = calculateMetrics(benchmarkSeries)
 
-    // Create the run record up front with an "in_progress" status so it shows
-    // up in history while the (potentially slow) data fetch is running.
-    const { data: created, error: insertError } = await supabase
-      .from('backtests')
-      .insert({
-        name: name || null,
-        assets,
-        start_date: startDate,
-        end_date: endDate,
-        initial_investment: initialInvestment,
-        status: 'in_progress',
-      })
-      .select()
-      .single()
-
-    if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 500 })
-    }
-    backtestId = created.id
-
-    const startDateObj = new Date(startDate)
-    const endDateObj = new Date(endDate)
-
-    const priceDataMap = new Map<string, Map<string, number>>()
-
-    for (const asset of assets) {
-      const prices = await fetchHistoricalPrices(asset.symbol.toUpperCase(), startDateObj, endDateObj)
-      priceDataMap.set(asset.symbol.toUpperCase(), prices)
-      await new Promise(resolve => setTimeout(resolve, 300))
-    }
-
-    const commonDates = getCommonDates(priceDataMap)
-
-    if (commonDates.length < 2) {
-      throw new Error('Not enough overlapping data for the selected assets and date range')
-    }
-
-    const portfolioHistory: PortfolioDataPoint[] = []
+    // Per-asset total return over the same window, for the dashboard.
     const assetReturns: Record<string, number> = {}
 
-    const firstDate = commonDates[0]
-    const lastDate = commonDates[commonDates.length - 1]
+    for (const ticker of tickers) {
+      const prices = priceData[ticker]
+      const first = prices[0]?.close
+      const last = prices[prices.length - 1]?.close
 
-    for (const asset of assets) {
-      const prices = priceDataMap.get(asset.symbol.toUpperCase())!
-      const firstPrice = prices.get(firstDate)!
-      const lastPrice = prices.get(lastDate)!
-      assetReturns[asset.symbol.toUpperCase()] = ((lastPrice - firstPrice) / firstPrice) * 100
-    }
-
-    for (const date of commonDates) {
-      let portfolioValue = 0
-
-      for (const asset of assets) {
-        const prices = priceDataMap.get(asset.symbol.toUpperCase())!
-        const currentPrice = prices.get(date)!
-        const firstPrice = prices.get(firstDate)!
-
-        const assetAllocation = (asset.weight / 100) * initialInvestment
-        const shares = assetAllocation / firstPrice
-        portfolioValue += shares * currentPrice
+      if (first && last) {
+        assetReturns[ticker] = Math.round(((last - first) / first) * 10000) / 100
       }
-
-      portfolioHistory.push({
-        date,
-        value: Math.round(portfolioValue * 100) / 100
-      })
     }
 
-    const metrics = calculateMetrics(portfolioHistory)
+    const portfolioHistory = toDollars(portfolioSeries, initialInvestment)
+    const benchmarkHistory = toDollars(benchmarkSeries, initialInvestment)
 
-    // Persist the completed results.
-    const { data: completed, error: updateError } = await supabase
-      .from('backtests')
-      .update({
-        status: 'completed',
-        metrics,
-        portfolio_history: portfolioHistory,
-        asset_returns: assetReturns,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', backtestId)
-      .select()
-      .single()
-
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 })
+    const result = {
+      id: crypto.randomUUID(),
+      name: body.name?.trim() || null,
+      assets: body.assets ?? tickers.map((t) => ({ id: t, symbol: t, weight: 100 / tickers.length })),
+      startDate,
+      endDate,
+      initialInvestment,
+      status: 'completed' as const,
+      benchmark,
+      metrics,
+      benchmarkMetrics,
+      portfolioHistory,
+      benchmarkHistory,
+      // Base-100 series, the shape the documented API contract specifies.
+      portfolioReturns: portfolioSeries,
+      benchmarkReturns: benchmarkSeries,
+      assetReturns,
+      error: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     }
 
-    return NextResponse.json(mapRowToRecord(completed))
+    // Persistence is best-effort. The brief puts saved history out of scope, so
+    // a missing or misconfigured database must never fail a backtest.
+    const supabase = await createClient()
+
+    if (supabase) {
+      try {
+        const { data } = await supabase
+          .from('backtests')
+          .insert({
+            name: result.name,
+            assets: result.assets,
+            start_date: startDate,
+            end_date: endDate,
+            initial_investment: initialInvestment,
+            status: 'completed',
+            metrics,
+            portfolio_history: portfolioHistory,
+            asset_returns: assetReturns,
+          })
+          .select()
+          .single()
+
+        if (data) {
+          return NextResponse.json({ ...result, ...mapRowToRecord(data) })
+        }
+      } catch {
+        // Fall through and return the computed result unsaved.
+      }
+    }
+
+    return NextResponse.json(result)
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'An unexpected error occurred'
+    const status =
+      (error as { statusCode?: number })?.statusCode ??
+      (error as { status?: number })?.status ??
+      500
+    const message =
+      error instanceof Error ? error.message : 'An unexpected error occurred'
 
-    // Mark the run as failed so it is reflected in history.
-    if (backtestId) {
-      await supabase
-        .from('backtests')
-        .update({ status: 'failed', error: message, updated_at: new Date().toISOString() })
-        .eq('id', backtestId)
-    }
-
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json({ error: message }, { status })
   }
 }
