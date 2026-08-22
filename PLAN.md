@@ -150,7 +150,7 @@ is exactly what Code Quality grades. Both entry points import it.
 **Review gate: PASSED.** `npm test` reports 37/37 passing. This is the
 strongest single artifact you can put in front of a grader.
 
-## Sprint 2 — Data layer (1.5 days) — part of Functionality 40%
+## Sprint 2 — Data layer — part of Functionality 40% — **DONE**
 
 Closes: PRD Week 4, and fixes the Week 2 sample-data artifact
 
@@ -171,7 +171,7 @@ Closes: PRD Week 4, and fixes the Week 2 sample-data artifact
 **Review gate:** `["AAPL","MSFT","TSLA"]` returns all three under 12 seconds;
 `"INVALID"` returns 400 "Ticker not found"; a 2022 range yields ~252 records.
 
-## Sprint 3 — Benchmark + portfolio engine (1.5 days) — rest of Functionality 40%
+## Sprint 3 — Benchmark + portfolio engine — rest of Functionality 40% — **DONE**
 
 Closes: PRD Week 5. **The biggest functional gap in the codebase.**
 
@@ -194,7 +194,7 @@ Functionality criterion.
 **Review gate:** a TSLA/AAPL/MSFT 2021-2023 run returns both series, both
 starting at 100, over a matching date range.
 
-## Sprint 4 — Frontend (1.5 days) — UX 15%
+## Sprint 4 — Frontend — UX 15% — **DONE**
 
 Closes: PRD Weeks 6 and 7, plus the Week 8 summary box
 
@@ -211,7 +211,7 @@ Closes: PRD Weeks 6 and 7, plus the Week 8 summary box
 
 **Review gate:** Chrome DevTools at 375px, full run, clean console.
 
-## Sprint 5 — Deploy + documentation (1 day) — Deployment/Docs 15%
+## Sprint 5 — Deploy + documentation — Deployment/Docs 15% — **DOCS DONE, DEPLOY PENDING**
 
 Closes: PRD Weeks 7 (deploy) and 8 (docs)
 
