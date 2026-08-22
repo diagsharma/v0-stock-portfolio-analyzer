@@ -87,6 +87,8 @@ export default function Home() {
                 benchmark={record.benchmark}
                 benchmarkMetrics={record.benchmarkMetrics}
                 benchmarkHistory={record.benchmarkHistory}
+                requestedStartDate={record.startDate}
+                effectiveStartDate={record.effectiveStartDate}
               />
             )}
 

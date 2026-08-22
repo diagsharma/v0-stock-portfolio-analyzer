@@ -122,22 +122,33 @@ export async function POST(request: Request) {
       )
     }
 
+    // The benchmark must cover exactly the window the portfolio actually spans,
+    // not the window that was requested. A holding younger than the requested
+    // range (a recently launched ETF, say) starts the portfolio series late,
+    // and measuring the benchmark over the full range would compare a 3-year
+    // portfolio against a 5-year market return and call it outperformance.
+    const effectiveStart = portfolioSeries[0].date
+    const effectiveEnd = portfolioSeries[portfolioSeries.length - 1].date
+
     const benchmarkSeries = calculatePortfolioReturns(
       { [benchmark]: priceData[benchmark] },
-      startDate,
-      endDate
+      effectiveStart,
+      effectiveEnd
     )
 
     const metrics = calculateMetrics(portfolioSeries)
     const benchmarkMetrics = calculateMetrics(benchmarkSeries)
 
-    // Per-asset total return over the same window, for the dashboard.
+    // Per-asset total return, measured over that same effective window so the
+    // per-asset figures reconcile with the portfolio total.
     const assetReturns: Record<string, number> = {}
 
     for (const ticker of tickers) {
-      const prices = priceData[ticker]
-      const first = prices[0]?.close
-      const last = prices[prices.length - 1]?.close
+      const windowed = priceData[ticker].filter(
+        (p: { date: string }) => p.date >= effectiveStart && p.date <= effectiveEnd
+      )
+      const first = windowed[0]?.close
+      const last = windowed[windowed.length - 1]?.close
 
       if (first && last) {
         assetReturns[ticker] = Math.round(((last - first) / first) * 10000) / 100
@@ -153,6 +164,10 @@ export async function POST(request: Request) {
       assets: body.assets ?? tickers.map((t) => ({ id: t, symbol: t, weight: 100 / tickers.length })),
       startDate,
       endDate,
+      // The window actually covered, which is narrower than the requested one
+      // when a holding has less history than the range asked for.
+      effectiveStartDate: effectiveStart,
+      effectiveEndDate: effectiveEnd,
       initialInvestment,
       status: 'completed' as const,
       benchmark,

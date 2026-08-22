@@ -298,3 +298,36 @@ describe('fallback reasons', () => {
     expect(result.fallbackReasons.join(' ')).toMatch(/no API key/)
   })
 })
+
+describe('bounded concurrency', () => {
+  test('never has more than four requests in flight', async () => {
+    let inFlight = 0
+    let peak = 0
+
+    const yahoo = jest.fn(async () => {
+      inFlight++
+      peak = Math.max(peak, inFlight)
+      await new Promise((r) => setTimeout(r, 20))
+      inFlight--
+      return series('2021-01-01', 10)
+    })
+
+    const providers = makeProviders({ yahoo })
+    const tickers = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+
+    const result = await fetchMultipleTickers(tickers, { ...RANGE, providers })
+
+    expect(Object.keys(result)).toHaveLength(10)
+    expect(peak).toBeLessThanOrEqual(4)
+    expect(yahoo).toHaveBeenCalledTimes(10)
+  })
+
+  test('still returns every ticker when there are fewer than the limit', async () => {
+    const providers = makeProviders({
+      yahoo: jest.fn().mockResolvedValue(series('2021-01-01', 10)),
+    })
+
+    const result = await fetchMultipleTickers(['AAPL', 'MSFT'], { ...RANGE, providers })
+    expect(Object.keys(result).sort()).toEqual(['AAPL', 'MSFT'])
+  })
+})

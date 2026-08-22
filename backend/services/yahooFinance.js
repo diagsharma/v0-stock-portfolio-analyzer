@@ -36,6 +36,13 @@ function toUnixSeconds(date) {
   return Math.floor(new Date(`${date}T00:00:00Z`).getTime() / 1000)
 }
 
+/** Statuses Yahoo returns when it is throttling rather than refusing. */
+const RETRYABLE_STATUSES = new Set([400, 429, 500, 502, 503, 504])
+
+const DEFAULT_RETRIES = 3
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
 /**
  * Fetch daily prices for a single ticker from Yahoo Finance.
  *
@@ -43,16 +50,60 @@ function toUnixSeconds(date) {
  * splits and is the correct basis for return calculations. Falls back to raw
  * close only when Yahoo omits the adjusted series.
  *
+ * Retries with exponential backoff and jitter. Yahoo throttles bursts from a
+ * single IP by answering HTTP 400 -- not 429 -- which is indistinguishable from
+ * a genuinely bad request by status alone, so 400 is treated as retryable and
+ * only reported as an error once the retries are exhausted.
+ *
  * @param {string} ticker - Symbol, already validated and uppercased.
  * @param {object} options
  * @param {string} options.startDate - YYYY-MM-DD, inclusive.
  * @param {string} options.endDate - YYYY-MM-DD, inclusive.
  * @param {number} [options.timeout=8000]
+ * @param {number} [options.retries=3]
  * @param {typeof fetch} [options.fetchImpl] - Injectable for tests.
  * @returns {Promise<{date: string, close: number}[]>} Chronological prices.
  * @throws {TickerNotFoundError|MarketDataError}
  */
 async function fetchHistoricalPrices(ticker, options = {}) {
+  const { retries = DEFAULT_RETRIES } = options
+  let lastError
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) {
+      // 400ms, 800ms, 1600ms, plus jitter so parallel requests for different
+      // tickers do not retry in lockstep and re-create the burst.
+      const backoff = 400 * 2 ** (attempt - 1)
+      await sleep(backoff + Math.random() * 250)
+    }
+
+    try {
+      return await fetchOnce(ticker, options)
+    } catch (error) {
+      // A symbol that does not exist will not start existing on retry.
+      if (error instanceof TickerNotFoundError) {
+        throw error
+      }
+
+      if (!error.retryable) {
+        throw error
+      }
+
+      lastError = error
+    }
+  }
+
+  throw lastError
+}
+
+/**
+ * A single Yahoo request with no retry logic.
+ *
+ * @param {string} ticker
+ * @param {object} options - See fetchHistoricalPrices.
+ * @returns {Promise<{date: string, close: number}[]>}
+ */
+async function fetchOnce(ticker, options = {}) {
   const {
     startDate,
     endDate,
@@ -81,9 +132,12 @@ async function fetchHistoricalPrices(ticker, options = {}) {
       signal: AbortSignal.timeout(timeout),
     })
   } catch (error) {
-    throw new MarketDataError(
+    // Timeouts and socket failures are worth another attempt.
+    const wrapped = new MarketDataError(
       `Yahoo Finance request for ${ticker} failed: ${error.message}`
     )
+    wrapped.retryable = true
+    throw wrapped
   }
 
   // Yahoo answers an unknown symbol with 404 and a JSON error body.
@@ -92,9 +146,11 @@ async function fetchHistoricalPrices(ticker, options = {}) {
   }
 
   if (!response.ok) {
-    throw new MarketDataError(
+    const failure = new MarketDataError(
       `Yahoo Finance returned HTTP ${response.status} for ${ticker}`
     )
+    failure.retryable = RETRYABLE_STATUSES.has(response.status)
+    throw failure
   }
 
   let payload

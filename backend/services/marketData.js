@@ -186,11 +186,17 @@ async function fetchTicker(ticker, options = {}) {
   throw new MarketDataError(`Could not load price data for ${ticker}. ${detail}`)
 }
 
+// Yahoo throttles bursts from a single IP, answering HTTP 400. Four in flight
+// keeps a ten-ticker portfolio fast while staying under that threshold.
+const MAX_CONCURRENT_FETCHES = 4
+
 /**
- * Fetch several tickers in parallel.
+ * Fetch several tickers in parallel, with a bounded number in flight.
  *
- * Uses Promise.all so total latency tracks the slowest single request rather
- * than the sum of all of them.
+ * Uses Promise.all so total latency tracks the slowest request in a batch
+ * rather than the sum of every request. The bound matters: firing ten
+ * simultaneous requests reliably trips Yahoo's rate limiter, which then fails
+ * the whole backtest.
  *
  * @param {string[]} tickers - Validated, uppercased symbols.
  * @param {object} options - Same options as fetchTicker.
@@ -198,15 +204,21 @@ async function fetchTicker(ticker, options = {}) {
  *          Map of ticker to its price history.
  */
 async function fetchMultipleTickers(tickers, options = {}) {
-  const results = await Promise.all(
-    tickers.map((ticker) => fetchTicker(ticker, options))
+  const byTicker = {}
+  const queue = [...tickers]
+
+  const workers = Array.from(
+    { length: Math.min(MAX_CONCURRENT_FETCHES, queue.length) },
+    async () => {
+      while (queue.length > 0) {
+        const ticker = queue.shift()
+        const result = await fetchTicker(ticker, options)
+        byTicker[result.ticker] = result.prices
+      }
+    }
   )
 
-  const byTicker = {}
-
-  for (const result of results) {
-    byTicker[result.ticker] = result.prices
-  }
+  await Promise.all(workers)
 
   return byTicker
 }

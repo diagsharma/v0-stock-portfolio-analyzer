@@ -1,5 +1,7 @@
 'use client'
 
+import { Info } from 'lucide-react'
+
 import { MetricCard } from '@/components/metric-card'
 import { PortfolioChart } from '@/components/portfolio-chart'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,6 +15,8 @@ interface ResultsDashboardProps {
   benchmarkMetrics?: BacktestMetrics | null
   benchmarkHistory?: PortfolioDataPoint[] | null
   benchmark?: string
+  requestedStartDate?: string
+  effectiveStartDate?: string
 }
 
 const formatPercent = (value: number, showSign = true) => {
@@ -31,13 +35,36 @@ export function ResultsDashboard({
   benchmarkMetrics,
   benchmarkHistory,
   benchmark,
+  requestedStartDate,
+  effectiveStartDate,
 }: ResultsDashboardProps) {
   const label = benchmarkName(benchmark)
+  // Surfaced rather than silently applied: if one holding is younger than the
+  // requested range, the whole comparison shifts to the shorter window.
+  const windowTrimmed =
+    requestedStartDate &&
+    effectiveStartDate &&
+    effectiveStartDate.slice(0, 7) !== requestedStartDate.slice(0, 7)
   const beatBenchmark =
     benchmarkMetrics && metrics.totalReturn > benchmarkMetrics.totalReturn
 
   return (
     <div className="space-y-6">
+      {windowTrimmed && (
+        <div className="flex gap-2 rounded-lg border border-border bg-secondary/50 p-3 text-sm text-muted-foreground">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          <p className="text-pretty">
+            One or more holdings have less price history than the range you
+            chose, so this backtest covers{' '}
+            <strong className="text-foreground">
+              {effectiveStartDate} onwards
+            </strong>
+            . The {label} is measured over the same window, so the comparison
+            stays like-for-like.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <MetricCard
           title="Total Return"

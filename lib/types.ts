@@ -52,6 +52,10 @@ export interface BacktestRecord {
   benchmark?: string
   benchmarkMetrics?: BacktestMetrics | null
   benchmarkHistory?: PortfolioDataPoint[] | null
+  // The window actually covered, narrower than the requested range when a
+  // holding has less price history than was asked for.
+  effectiveStartDate?: string
+  effectiveEndDate?: string
   error: string | null
   createdAt: string
   updatedAt: string
