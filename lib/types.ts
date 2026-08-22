@@ -29,6 +29,10 @@ export interface BacktestResult {
   metrics: BacktestMetrics
   portfolioHistory: PortfolioDataPoint[]
   assetReturns: Record<string, number>
+  // Benchmark comparison, present whenever the run completed successfully.
+  benchmark?: string
+  benchmarkMetrics?: BacktestMetrics | null
+  benchmarkHistory?: PortfolioDataPoint[] | null
 }
 
 export type BacktestStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
@@ -45,6 +49,9 @@ export interface BacktestRecord {
   metrics: BacktestMetrics | null
   portfolioHistory: PortfolioDataPoint[] | null
   assetReturns: Record<string, number> | null
+  benchmark?: string
+  benchmarkMetrics?: BacktestMetrics | null
+  benchmarkHistory?: PortfolioDataPoint[] | null
   error: string | null
   createdAt: string
   updatedAt: string

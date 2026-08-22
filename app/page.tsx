@@ -80,12 +80,13 @@ export default function Home() {
 
             {showResults && (
               <ResultsDashboard
-                result={{
-                  metrics: record.metrics!,
-                  portfolioHistory: record.portfolioHistory!,
-                  assetReturns: record.assetReturns!,
-                }}
+                metrics={record.metrics!}
+                portfolioHistory={record.portfolioHistory!}
+                assetReturns={record.assetReturns!}
                 initialInvestment={record.initialInvestment}
+                benchmark={record.benchmark}
+                benchmarkMetrics={record.benchmarkMetrics}
+                benchmarkHistory={record.benchmarkHistory}
               />
             )}
 
