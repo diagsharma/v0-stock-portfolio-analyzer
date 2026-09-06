@@ -14,6 +14,7 @@ const {
   calculateVolatility,
   normalizeToBase100,
   calculatePortfolioReturns,
+  calculateDividendYield,
   calculateMetrics,
 } = require('./calculations')
 
@@ -283,5 +284,135 @@ describe('calculateMetrics', () => {
       sharpeRatio: 0,
       maxDrawdown: 0,
     })
+  })
+})
+
+describe('dividend reinvestment', () => {
+  // A flat price series isolates the dividend effect: any gain in the value
+  // series can only have come from reinvested payments.
+  const flatPrices = {
+    VOO: [
+      { date: '2021-01-01', close: 100 },
+      { date: '2021-06-01', close: 100 },
+      { date: '2021-12-31', close: 100 },
+    ],
+  }
+
+  test('a price-only series ignores dividends entirely', () => {
+    const series = calculatePortfolioReturns(flatPrices, '2021-01-01', '2021-12-31')
+    expect(calculateTotalReturn(series.map((p) => p.value))).toBe(0)
+  })
+
+  test('reinvesting a payment buys shares and lifts the final value', () => {
+    const series = calculatePortfolioReturns(
+      flatPrices,
+      '2021-01-01',
+      '2021-12-31',
+      undefined,
+      { VOO: [{ date: '2021-06-01', amount: 10 }] }
+    )
+
+    // $10 per share on 1 share buys 0.1 more shares at $100.
+    expect(calculateTotalReturn(series.map((p) => p.value))).toBe(10)
+  })
+
+  test('successive payments compound on the shares the earlier ones bought', () => {
+    const series = calculatePortfolioReturns(
+      flatPrices,
+      '2021-01-01',
+      '2021-12-31',
+      undefined,
+      {
+        VOO: [
+          { date: '2021-06-01', amount: 10 },
+          { date: '2021-12-31', amount: 10 },
+        ],
+      }
+    )
+
+    // 21%, not the 20% two flat 10% payments would give without compounding.
+    expect(calculateTotalReturn(series.map((p) => p.value))).toBe(21)
+  })
+
+  test('payments outside the holding window are ignored', () => {
+    const series = calculatePortfolioReturns(
+      flatPrices,
+      '2021-01-01',
+      '2021-12-31',
+      undefined,
+      {
+        VOO: [
+          { date: '2020-06-01', amount: 10 },
+          { date: '2021-01-01', amount: 10 },
+          { date: '2022-06-01', amount: 10 },
+        ],
+      }
+    )
+
+    expect(calculateTotalReturn(series.map((p) => p.value))).toBe(0)
+  })
+
+  test('a payment on a non-trading day reinvests on the next trading day', () => {
+    const series = calculatePortfolioReturns(
+      flatPrices,
+      '2021-01-01',
+      '2021-12-31',
+      undefined,
+      { VOO: [{ date: '2021-05-30', amount: 10 }] }
+    )
+
+    expect(series[1].value).toBe(110)
+  })
+})
+
+describe('calculateDividendYield', () => {
+  const prices = [
+    { date: '2021-01-01', close: 100 },
+    { date: '2022-01-01', close: 100 },
+  ]
+
+  test('one $1 payment against a $100 average price over a year is 1%', () => {
+    expect(
+      calculateDividendYield(
+        [{ date: '2021-06-01', amount: 1 }],
+        prices,
+        '2021-01-01',
+        '2022-01-01'
+      )
+    ).toBe(1)
+  })
+
+  test('annualizes a multi-year window rather than summing it', () => {
+    const twoYears = [
+      { date: '2021-01-01', close: 100 },
+      { date: '2023-01-01', close: 100 },
+    ]
+
+    expect(
+      calculateDividendYield(
+        [
+          { date: '2021-06-01', amount: 1 },
+          { date: '2022-06-01', amount: 1 },
+        ],
+        twoYears,
+        '2021-01-01',
+        '2023-01-01'
+      )
+    ).toBe(1)
+  })
+
+  test('is zero for a non-dividend-payer', () => {
+    expect(calculateDividendYield([], prices, '2021-01-01', '2022-01-01')).toBe(0)
+  })
+
+  test('ignores payments outside the window', () => {
+    expect(
+      calculateDividendYield(
+        [{ date: '2019-06-01', amount: 1 }],
+        prices,
+        '2021-01-01',
+        '2022-01-01'
+      )
+    ).toBe(0)
   })
 })

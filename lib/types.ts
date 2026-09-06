@@ -33,6 +33,12 @@ export interface BacktestResult {
   benchmark?: string
   benchmarkMetrics?: BacktestMetrics | null
   benchmarkHistory?: PortfolioDataPoint[] | null
+  // Dividend effects. `metrics` above is a total return with dividends
+  // reinvested; these isolate that contribution. Absent on runs saved before
+  // dividends were modelled.
+  priceOnlyMetrics?: BacktestMetrics | null
+  dividendYield?: number | null
+  assetDividendYields?: Record<string, number> | null
 }
 
 export type BacktestStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
@@ -52,11 +58,23 @@ export interface BacktestRecord {
   benchmark?: string
   benchmarkMetrics?: BacktestMetrics | null
   benchmarkHistory?: PortfolioDataPoint[] | null
+  priceOnlyMetrics?: BacktestMetrics | null
+  dividendYield?: number | null
+  assetDividendYields?: Record<string, number> | null
   // The window actually covered, narrower than the requested range when a
   // holding has less price history than was asked for.
   effectiveStartDate?: string
   effectiveEndDate?: string
   error: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+// A portfolio a signed-in user saved to reuse later.
+export interface SavedPortfolio {
+  id: string
+  name: string
+  assets: Asset[]
   createdAt: string
   updatedAt: string
 }

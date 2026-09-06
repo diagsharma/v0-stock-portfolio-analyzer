@@ -287,16 +287,31 @@ function normalizeToBase100(series) {
  * ticker with a shorter history cannot silently distort the series. The result
  * is normalized to start at 100.
  *
+ * When dividendsByTicker is supplied, dividends are reinvested: each payment
+ * buys additional fractional shares at that day's close, so the share count
+ * compounds over the holding period. Omitting it yields a price-only series,
+ * and calling with and without it is how the API isolates the contribution
+ * dividends made to total return.
+ *
  * @param {Record<string, {date: string, close: number}[]>} tickerPrices -
  *        Map of ticker to its chronological price history.
  * @param {string} [startDate] - Optional inclusive lower bound (YYYY-MM-DD).
  * @param {string} [endDate] - Optional inclusive upper bound (YYYY-MM-DD).
  * @param {Record<string, number>} [weights] - Optional map of ticker to weight
  *        as a percentage. Defaults to equal weighting.
+ * @param {Record<string, {date: string, amount: number}[]>} [dividendsByTicker] -
+ *        Optional map of ticker to its dividend payments. Omit for a
+ *        price-only series.
  * @returns {{date: string, value: number}[]} Chronological portfolio series
  *          starting at 100.
  */
-function calculatePortfolioReturns(tickerPrices, startDate, endDate, weights) {
+function calculatePortfolioReturns(
+  tickerPrices,
+  startDate,
+  endDate,
+  weights,
+  dividendsByTicker
+) {
   const tickers = Object.keys(tickerPrices || {})
 
   if (tickers.length === 0) {
@@ -338,8 +353,10 @@ function calculatePortfolioReturns(tickerPrices, startDate, endDate, weights) {
   }
 
   const firstDate = commonDates[0]
+  const lastDate = commonDates[commonDates.length - 1]
 
-  // Buy at the first common date and hold: shares are fixed, value floats.
+  // Buy at the first common date: shares are fixed unless dividends are
+  // reinvested, in which case they grow on each payment date.
   const shares = {}
 
   for (const ticker of tickers) {
@@ -347,17 +364,112 @@ function calculatePortfolioReturns(tickerPrices, startDate, endDate, weights) {
     shares[ticker] = firstPrice ? (resolvedWeights[ticker] * 100) / firstPrice : 0
   }
 
+  // Payments on the purchase date itself are excluded: the opening price is
+  // already ex-dividend, so counting them would credit a payout the position
+  // never earned.
+  const pendingDividends = {}
+  const dividendCursor = {}
+
+  for (const ticker of tickers) {
+    pendingDividends[ticker] = (dividendsByTicker?.[ticker] || [])
+      .filter((event) => event.date > firstDate && event.date <= lastDate)
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date))
+    dividendCursor[ticker] = 0
+  }
+
   const series = commonDates.map((date) => {
     let value = 0
 
     for (const ticker of tickers) {
-      value += shares[ticker] * priceByDate[ticker].get(date)
+      const price = priceByDate[ticker].get(date)
+      const queue = pendingDividends[ticker]
+
+      // Any payment dated on or before today that has not been reinvested
+      // yet buys shares at today's close. A payment falling on a non-trading
+      // day therefore lands on the next trading day, as it would in practice.
+      while (
+        dividendCursor[ticker] < queue.length &&
+        queue[dividendCursor[ticker]].date <= date
+      ) {
+        const { amount } = queue[dividendCursor[ticker]]
+
+        if (price) {
+          shares[ticker] += (shares[ticker] * amount) / price
+        }
+
+        dividendCursor[ticker]++
+      }
+
+      value += shares[ticker] * price
     }
 
     return { date, value }
   })
 
   return normalizeToBase100(series)
+}
+
+/**
+ * Calculate the average annualized dividend yield realized over a window.
+ *
+ * Total dividends per share received during the window, divided by the mean
+ * close price over that window, then annualized by the length of the window.
+ * The mean price is used rather than the closing price so a large move late
+ * in the period does not distort a multi-year figure.
+ *
+ * @param {{date: string, amount: number}[]} dividendEvents - Payments.
+ * @param {{date: string, close: number}[]} prices - Chronological prices.
+ * @param {string} startDate - Inclusive lower bound (YYYY-MM-DD).
+ * @param {string} endDate - Inclusive upper bound (YYYY-MM-DD).
+ * @returns {number} Annualized yield as a percentage, or 0 when it cannot be
+ *                   computed.
+ *
+ * @example
+ * // One $1 payment against a $100 average price over a year => 1%
+ * calculateDividendYield(
+ *   [{date: '2021-06-01', amount: 1}],
+ *   [{date: '2021-01-01', close: 100}, {date: '2021-12-31', close: 100}],
+ *   '2021-01-01', '2021-12-31'
+ * ) // => 1.0
+ */
+function calculateDividendYield(dividendEvents, prices, startDate, endDate) {
+  if (!Array.isArray(dividendEvents) || dividendEvents.length === 0) {
+    return 0
+  }
+
+  const totalDividends = dividendEvents
+    .filter((event) => event.date >= startDate && event.date <= endDate)
+    .reduce((sum, event) => sum + event.amount, 0)
+
+  if (totalDividends <= 0) {
+    return 0
+  }
+
+  const windowed = (prices || []).filter(
+    (point) => point.date >= startDate && point.date <= endDate
+  )
+
+  if (windowed.length === 0) {
+    return 0
+  }
+
+  const averagePrice =
+    windowed.reduce((sum, point) => sum + point.close, 0) / windowed.length
+
+  if (averagePrice <= 0) {
+    return 0
+  }
+
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+  const years = (end.getTime() - start.getTime()) / (DAYS_PER_YEAR * MS_PER_DAY)
+
+  if (!Number.isFinite(years) || years <= 0) {
+    return 0
+  }
+
+  return round((totalDividends / averagePrice / years) * 100)
 }
 
 /**
@@ -404,6 +516,7 @@ module.exports = {
   calculateVolatility,
   normalizeToBase100,
   calculatePortfolioReturns,
+  calculateDividendYield,
   calculateMetrics,
   TRADING_DAYS_PER_YEAR,
 }

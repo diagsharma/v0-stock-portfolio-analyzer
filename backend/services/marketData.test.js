@@ -8,6 +8,8 @@
 const {
   fetchTicker,
   fetchMultipleTickers,
+  fetchDividends,
+  fetchDividendsForTickers,
   clearCache,
   filterToRange,
   coversRequestedRange,
@@ -329,5 +331,50 @@ describe('bounded concurrency', () => {
 
     const result = await fetchMultipleTickers(['AAPL', 'MSFT'], { ...RANGE, providers })
     expect(Object.keys(result).sort()).toEqual(['AAPL', 'MSFT'])
+  })
+})
+
+describe('dividends', () => {
+  const EVENTS = [
+    { date: '2021-01-04', amount: 0.25 },
+    { date: '2021-01-08', amount: 0.3 },
+  ]
+
+  function dividendProviders(impl) {
+    return { yahooFinance: { fetchDividends: impl, PROVIDER: 'yahoo' } }
+  }
+
+  test('returns the provider events and caches them', async () => {
+    const yahoo = jest.fn().mockResolvedValue(EVENTS)
+    const providers = dividendProviders(yahoo)
+
+    await expect(
+      fetchDividends('AAPL', { ...RANGE, providers })
+    ).resolves.toEqual(EVENTS)
+    await fetchDividends('AAPL', { ...RANGE, providers })
+
+    expect(yahoo).toHaveBeenCalledTimes(1)
+  })
+
+  test('degrades to an empty array rather than failing the backtest', async () => {
+    const providers = dividendProviders(
+      jest.fn().mockRejectedValue(new MarketDataError('yahoo is down'))
+    )
+
+    await expect(
+      fetchDividends('AAPL', { ...RANGE, providers })
+    ).resolves.toEqual([])
+  })
+
+  test('fetchDividendsForTickers returns a map keyed by ticker', async () => {
+    const providers = dividendProviders(jest.fn().mockResolvedValue(EVENTS))
+
+    const result = await fetchDividendsForTickers(['AAPL', 'MSFT'], {
+      ...RANGE,
+      providers,
+    })
+
+    expect(Object.keys(result).sort()).toEqual(['AAPL', 'MSFT'])
+    expect(result.AAPL).toEqual(EVENTS)
   })
 })

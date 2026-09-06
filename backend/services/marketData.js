@@ -23,6 +23,7 @@ const {
 const CACHE_TTL_MS = 60 * 60 * 1000
 
 const cache = new Map()
+const dividendCache = new Map()
 
 /**
  * @param {string} ticker
@@ -37,6 +38,7 @@ function cacheKey(ticker, startDate, endDate) {
 /** Empty the session cache. Exposed for tests and for a manual refresh. */
 function clearCache() {
   cache.clear()
+  dividendCache.clear()
 }
 
 /**
@@ -223,9 +225,89 @@ async function fetchMultipleTickers(tickers, options = {}) {
   return byTicker
 }
 
+/**
+ * Fetch one ticker's dividend payment history.
+ *
+ * Dividends are only available from Yahoo -- Alpha Vantage's free tier has no
+ * usable dividend endpoint. Unlike fetchTicker, a failure here is non-fatal:
+ * it resolves to an empty array so a Yahoo hiccup degrades to "no dividend
+ * data" rather than failing the whole backtest, since dividend reinvestment
+ * is an enhancement on top of the core price series, not a prerequisite for
+ * it.
+ *
+ * @param {string} ticker - Validated, uppercased symbol.
+ * @param {object} options
+ * @param {string} options.startDate - YYYY-MM-DD
+ * @param {string} options.endDate - YYYY-MM-DD
+ * @param {boolean} [options.useCache=true]
+ * @param {object} [options.providers] - Injectable providers for tests.
+ * @returns {Promise<{date: string, amount: number}[]>}
+ */
+async function fetchDividends(ticker, options = {}) {
+  const {
+    startDate,
+    endDate,
+    useCache = true,
+    providers = { yahooFinance },
+  } = options
+
+  const key = cacheKey(ticker, startDate, endDate)
+
+  if (useCache) {
+    const hit = dividendCache.get(key)
+
+    if (hit && Date.now() - hit.storedAt < CACHE_TTL_MS) {
+      return hit.value
+    }
+  }
+
+  try {
+    const dividends = await providers.yahooFinance.fetchDividends(ticker, {
+      startDate,
+      endDate,
+    })
+
+    dividendCache.set(key, { value: dividends, storedAt: Date.now() })
+    return dividends
+  } catch {
+    // Not found, rate-limited, or a transport failure -- all degrade the
+    // same way, since a missing yield is far better than a failed backtest.
+    return []
+  }
+}
+
+/**
+ * Fetch dividend histories for several tickers in parallel, with a bounded
+ * number in flight (same limit as fetchMultipleTickers, for the same reason).
+ *
+ * @param {string[]} tickers - Validated, uppercased symbols.
+ * @param {object} options - Same options as fetchDividends.
+ * @returns {Promise<Record<string, {date: string, amount: number}[]>>}
+ */
+async function fetchDividendsForTickers(tickers, options = {}) {
+  const byTicker = {}
+  const queue = [...tickers]
+
+  const workers = Array.from(
+    { length: Math.min(MAX_CONCURRENT_FETCHES, queue.length) },
+    async () => {
+      while (queue.length > 0) {
+        const ticker = queue.shift()
+        byTicker[ticker] = await fetchDividends(ticker, options)
+      }
+    }
+  )
+
+  await Promise.all(workers)
+
+  return byTicker
+}
+
 module.exports = {
   fetchTicker,
   fetchMultipleTickers,
+  fetchDividends,
+  fetchDividendsForTickers,
   clearCache,
   filterToRange,
   coversRequestedRange,

@@ -8,6 +8,13 @@
  * This is an unofficial endpoint with no stability guarantee, which is exactly
  * why every provider sits behind the same interface in marketData.js -- if
  * Yahoo changes, only this file needs replacing.
+ *
+ * Prices are raw close, not dividend-adjusted. Dividend effects are modeled
+ * explicitly instead: fetchDividends() below returns real dividend payments,
+ * and backend/utils/calculations.js simulates reinvestment on top of the raw
+ * price series. Using adjusted close here as well would double-count those
+ * dividends. Alpha Vantage's free tier only ever returns raw close, so this
+ * also keeps both providers on the same basis.
  */
 
 const {
@@ -46,9 +53,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 /**
  * Fetch daily prices for a single ticker from Yahoo Finance.
  *
- * Returns adjusted close where available, which accounts for dividends and
- * splits and is the correct basis for return calculations. Falls back to raw
- * close only when Yahoo omits the adjusted series.
+ * Returns raw close (not dividend-adjusted) -- see the file header for why.
  *
  * Retries with exponential backoff and jitter. Yahoo throttles bursts from a
  * single IP by answering HTTP 400 -- not 429 -- which is indistinguishable from
@@ -66,6 +71,18 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
  * @throws {TickerNotFoundError|MarketDataError}
  */
 async function fetchHistoricalPrices(ticker, options = {}) {
+  return withRetries(ticker, options, fetchOnce)
+}
+
+/**
+ * Shared retry/backoff wrapper for a single-attempt Yahoo request function.
+ *
+ * @param {string} ticker
+ * @param {object} options - See fetchHistoricalPrices.
+ * @param {(ticker: string, options: object) => Promise<any>} attemptFn
+ * @returns {Promise<any>}
+ */
+async function withRetries(ticker, options, attemptFn) {
   const { retries = DEFAULT_RETRIES } = options
   let lastError
 
@@ -78,7 +95,7 @@ async function fetchHistoricalPrices(ticker, options = {}) {
     }
 
     try {
-      return await fetchOnce(ticker, options)
+      return await attemptFn(ticker, options)
     } catch (error) {
       // A symbol that does not exist will not start existing on retry.
       if (error instanceof TickerNotFoundError) {
@@ -180,9 +197,7 @@ async function fetchOnce(ticker, options = {}) {
   }
 
   const timestamps = result.timestamp
-  const adjClose = result.indicators?.adjclose?.[0]?.adjclose
-  const rawClose = result.indicators?.quote?.[0]?.close
-  const closes = adjClose || rawClose
+  const closes = result.indicators?.quote?.[0]?.close
 
   if (!Array.isArray(closes)) {
     throw new MarketDataError(`Yahoo Finance returned no price series for ${ticker}`)
@@ -213,7 +228,125 @@ async function fetchOnce(ticker, options = {}) {
   return prices.sort((a, b) => a.date.localeCompare(b.date))
 }
 
+/**
+ * Fetch dividend payment events for a single ticker from Yahoo Finance.
+ *
+ * Used to model dividend reinvestment explicitly on top of the raw close
+ * price series (see backend/utils/calculations.js), rather than relying on
+ * an adjusted-close price that would hide the effect.
+ *
+ * @param {string} ticker - Symbol, already validated and uppercased.
+ * @param {object} options
+ * @param {string} options.startDate - YYYY-MM-DD, inclusive.
+ * @param {string} options.endDate - YYYY-MM-DD, inclusive.
+ * @param {number} [options.timeout=8000]
+ * @param {number} [options.retries=3]
+ * @param {typeof fetch} [options.fetchImpl] - Injectable for tests.
+ * @returns {Promise<{date: string, amount: number}[]>} Chronological dividend
+ *          events. Empty for a non-dividend-paying ticker.
+ * @throws {TickerNotFoundError|MarketDataError}
+ */
+async function fetchDividends(ticker, options = {}) {
+  return withRetries(ticker, options, fetchDividendsOnce)
+}
+
+/**
+ * A single Yahoo dividend-events request with no retry logic.
+ *
+ * @param {string} ticker
+ * @param {object} options - See fetchDividends.
+ * @returns {Promise<{date: string, amount: number}[]>}
+ */
+async function fetchDividendsOnce(ticker, options = {}) {
+  const {
+    startDate,
+    endDate,
+    timeout = DEFAULT_TIMEOUT_MS,
+    fetchImpl = fetch,
+  } = options
+
+  if (!startDate || !endDate) {
+    throw new MarketDataError('Yahoo Finance requires both a start and end date')
+  }
+
+  const period1 = toUnixSeconds(startDate)
+  const period2 = toUnixSeconds(endDate) + 86400
+
+  const url =
+    `${BASE_URL}/${encodeURIComponent(ticker)}` +
+    `?period1=${period1}&period2=${period2}&interval=1d&events=div`
+
+  let response
+
+  try {
+    response = await fetchImpl(url, {
+      headers: REQUEST_HEADERS,
+      signal: AbortSignal.timeout(timeout),
+    })
+  } catch (error) {
+    const wrapped = new MarketDataError(
+      `Yahoo Finance dividends request for ${ticker} failed: ${error.message}`
+    )
+    wrapped.retryable = true
+    throw wrapped
+  }
+
+  if (response.status === 404) {
+    throw new TickerNotFoundError(ticker)
+  }
+
+  if (!response.ok) {
+    const failure = new MarketDataError(
+      `Yahoo Finance returned HTTP ${response.status} for ${ticker} dividends`
+    )
+    failure.retryable = RETRYABLE_STATUSES.has(response.status)
+    throw failure
+  }
+
+  let payload
+
+  try {
+    payload = await response.json()
+  } catch {
+    throw new MarketDataError(`Yahoo Finance returned invalid JSON for ${ticker} dividends`)
+  }
+
+  if (payload?.chart?.error) {
+    const code = payload.chart.error.code
+
+    if (code === 'Not Found') {
+      throw new TickerNotFoundError(ticker)
+    }
+
+    throw new MarketDataError(
+      `Yahoo Finance error for ${ticker} dividends: ${payload.chart.error.description || code}`
+    )
+  }
+
+  const result = payload?.chart?.result?.[0]
+
+  if (!result) {
+    throw new TickerNotFoundError(ticker)
+  }
+
+  // Non-dividend-payers simply omit this key -- not an error.
+  const dividends = result.events?.dividends
+
+  if (!dividends || typeof dividends !== 'object') {
+    return []
+  }
+
+  return Object.values(dividends)
+    .filter((event) => Number.isFinite(event?.amount) && Number.isFinite(event?.date))
+    .map((event) => ({
+      date: new Date(event.date * 1000).toISOString().slice(0, 10),
+      amount: event.amount,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
 module.exports = {
   PROVIDER,
   fetchHistoricalPrices,
+  fetchDividends,
 }

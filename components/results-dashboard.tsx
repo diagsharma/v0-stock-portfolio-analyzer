@@ -4,7 +4,13 @@ import { Info } from 'lucide-react'
 
 import { MetricCard } from '@/components/metric-card'
 import { PortfolioChart } from '@/components/portfolio-chart'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import type { BacktestMetrics, PortfolioDataPoint } from '@/lib/types'
 
 interface ResultsDashboardProps {
@@ -17,6 +23,9 @@ interface ResultsDashboardProps {
   benchmark?: string
   requestedStartDate?: string
   effectiveStartDate?: string
+  priceOnlyMetrics?: BacktestMetrics | null
+  dividendYield?: number | null
+  assetDividendYields?: Record<string, number> | null
 }
 
 const formatPercent = (value: number, showSign = true) => {
@@ -37,8 +46,16 @@ export function ResultsDashboard({
   benchmark,
   requestedStartDate,
   effectiveStartDate,
+  priceOnlyMetrics,
+  dividendYield,
+  assetDividendYields,
 }: ResultsDashboardProps) {
   const label = benchmarkName(benchmark)
+  // What reinvested dividends added on top of price movement alone. Runs saved
+  // before dividends were modelled have no price-only figure to compare with.
+  const dividendContribution = priceOnlyMetrics
+    ? metrics.totalReturn - priceOnlyMetrics.totalReturn
+    : null
   // Surfaced rather than silently applied: if one holding is younger than the
   // requested range, the whole comparison shifts to the shorter window.
   const windowTrimmed =
@@ -65,7 +82,7 @@ export function ResultsDashboard({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <MetricCard
           title="Total Return"
           value={formatPercent(metrics.totalReturn)}
@@ -75,6 +92,20 @@ export function ResultsDashboard({
               : undefined
           }
           trend={metrics.totalReturn >= 0 ? 'positive' : 'negative'}
+        />
+        <MetricCard
+          title="Dividend Yield"
+          value={
+            dividendYield === null || dividendYield === undefined
+              ? '—'
+              : formatPercent(dividendYield, false)
+          }
+          description={
+            dividendContribution === null
+              ? 'Annualized, reinvested'
+              : `${formatPercent(dividendContribution)} of total return`
+          }
+          trend={dividendYield ? 'positive' : 'neutral'}
         />
         <MetricCard
           title="Annualized Return"
@@ -150,6 +181,20 @@ export function ResultsDashboard({
                 ? `That is ${(metrics.totalReturn - benchmarkMetrics.totalReturn).toFixed(2)} percentage points ahead of the market.`
                 : `That is ${(benchmarkMetrics.totalReturn - metrics.totalReturn).toFixed(2)} percentage points behind the market.`}
             </p>
+            {dividendContribution !== null && priceOnlyMetrics && (
+              <p className="mt-3 text-pretty leading-relaxed text-muted-foreground">
+                Price movement alone accounts for{' '}
+                <strong className="text-foreground">
+                  {formatPercent(priceOnlyMetrics.totalReturn)}
+                </strong>{' '}
+                of that. The remaining{' '}
+                <strong className="text-foreground">
+                  {dividendContribution.toFixed(2)} percentage points
+                </strong>{' '}
+                came from dividends being reinvested as they were paid, which
+                then compounded for the rest of the period.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -157,24 +202,41 @@ export function ResultsDashboard({
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="text-foreground">Individual Asset Returns</CardTitle>
+          <CardDescription>
+            Total return with dividends reinvested, and each holding&rsquo;s
+            annualized yield over the period.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            {Object.entries(assetReturns).map(([symbol, returnValue]) => (
-              <div
-                key={symbol}
-                className="flex items-center justify-between rounded-lg bg-secondary p-3"
-              >
-                <span className="font-medium text-foreground">{symbol}</span>
-                <span
-                  className={
-                    returnValue >= 0 ? 'text-success' : 'text-destructive'
-                  }
+            {Object.entries(assetReturns).map(([symbol, returnValue]) => {
+              const yieldValue = assetDividendYields?.[symbol]
+
+              return (
+                <div
+                  key={symbol}
+                  className="flex items-center justify-between rounded-lg bg-secondary p-3"
                 >
-                  {formatPercent(returnValue)}
-                </span>
-              </div>
-            ))}
+                  <div className="min-w-0">
+                    <span className="font-medium text-foreground">{symbol}</span>
+                    {yieldValue !== undefined && (
+                      <p className="text-xs text-muted-foreground">
+                        {yieldValue > 0
+                          ? `${yieldValue.toFixed(2)}% yield`
+                          : 'No dividends'}
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    className={
+                      returnValue >= 0 ? 'text-success' : 'text-destructive'
+                    }
+                  >
+                    {formatPercent(returnValue)}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         </CardContent>
       </Card>

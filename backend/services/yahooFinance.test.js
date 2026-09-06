@@ -3,7 +3,7 @@
  * nothing touches the network.
  */
 
-const { fetchHistoricalPrices } = require('./yahooFinance')
+const { fetchHistoricalPrices, fetchDividends } = require('./yahooFinance')
 const { TickerNotFoundError, MarketDataError } = require('../utils/errors')
 
 const RANGE = { startDate: '2021-01-01', endDate: '2021-01-10', retries: 2 }
@@ -88,7 +88,7 @@ describe('yahoo retry behaviour', () => {
     ).resolves.toHaveLength(2)
   })
 
-  test('prefers adjusted close over raw close', async () => {
+  test('uses raw close, not adjusted close', async () => {
     const fetchImpl = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -107,7 +107,62 @@ describe('yahoo retry behaviour', () => {
       }),
     })
 
+    // Dividends are modeled explicitly via reinvestment, so the price series
+    // must stay on a raw-close basis or dividends would be double-counted.
     const prices = await fetchHistoricalPrices('AAPL', { ...RANGE, fetchImpl })
-    expect(prices[0].close).toBe(95)
+    expect(prices[0].close).toBe(100)
+  })
+})
+
+describe('yahoo dividend events', () => {
+  test('parses dividend events into chronological {date, amount} pairs', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        chart: {
+          result: [
+            {
+              timestamp: [1609776000, 1609862400],
+              indicators: { quote: [{ close: [100, 110] }] },
+              events: {
+                dividends: {
+                  1609862400: { amount: 0.5, date: 1609862400 },
+                  1609776000: { amount: 0.25, date: 1609776000 },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    })
+
+    const dividends = await fetchDividends('AAPL', { ...RANGE, fetchImpl })
+
+    expect(dividends).toEqual([
+      { date: '2021-01-04', amount: 0.25 },
+      { date: '2021-01-05', amount: 0.5 },
+    ])
+  })
+
+  test('returns an empty array for a non-dividend-payer', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        chart: {
+          result: [
+            {
+              timestamp: [1609776000],
+              indicators: { quote: [{ close: [100] }] },
+            },
+          ],
+        },
+      }),
+    })
+
+    await expect(
+      fetchDividends('GOOG', { ...RANGE, fetchImpl })
+    ).resolves.toEqual([])
   })
 })
