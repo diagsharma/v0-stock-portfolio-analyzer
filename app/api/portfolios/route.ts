@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 
 import { requireUser } from '@/lib/supabase/auth'
+import { MAX_TICKERS } from '@/backend/utils/validation'
 import type { Asset, SavedPortfolio } from '@/lib/types'
 
-const MAX_ASSETS = 10
 const TICKER_PATTERN = /^[A-Z]{1,5}$/
 
 function mapRow(row: Record<string, unknown>): SavedPortfolio {
@@ -46,9 +46,9 @@ export async function POST(request: Request) {
   const body = (await request.json()) as { name?: string; assets?: Asset[] }
   const assets = body.assets ?? []
 
-  if (assets.length === 0 || assets.length > MAX_ASSETS) {
+  if (assets.length === 0 || assets.length > MAX_TICKERS) {
     return NextResponse.json(
-      { error: `A portfolio needs between 1 and ${MAX_ASSETS} assets` },
+      { error: `A portfolio needs between 1 and ${MAX_TICKERS} assets` },
       { status: 400 }
     )
   }

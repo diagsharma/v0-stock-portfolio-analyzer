@@ -15,10 +15,13 @@
  *   "AAPL", 25.5    fields may be quoted and padded
  */
 
+const { MAX_TICKERS } = require('./validation')
+
 const TICKER_PATTERN = /^[A-Z]{1,5}$/
 
-// Kept in step with MAX_TICKERS in validation.js, which the API enforces.
-const DEFAULT_MAX_ASSETS = 50
+// Defer to the limit the API enforces, so an import can never produce a
+// portfolio that is then rejected on save or on run.
+const DEFAULT_MAX_ASSETS = MAX_TICKERS
 
 /** Delimiters seen in spreadsheet exports, in preference order on a tie. */
 const DELIMITERS = [',', ';', '\t']
@@ -235,4 +238,5 @@ function parsePortfolioCsv(text, options = {}) {
 module.exports = {
   parsePortfolioCsv,
   TICKER_PATTERN,
+  DEFAULT_MAX_ASSETS,
 }

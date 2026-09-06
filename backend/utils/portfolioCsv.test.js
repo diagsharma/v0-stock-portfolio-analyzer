@@ -6,7 +6,17 @@
  * anything that would produce a wrong portfolio.
  */
 
-const { parsePortfolioCsv } = require('./portfolioCsv')
+const { parsePortfolioCsv, DEFAULT_MAX_ASSETS } = require('./portfolioCsv')
+const { MAX_TICKERS } = require('./validation')
+
+describe('import limit', () => {
+  // These drifted apart once already: the form and CSV import allowed 50 while
+  // the save endpoint still rejected anything over 10, so a portfolio could be
+  // built and then refused. Every limit now derives from MAX_TICKERS.
+  test('the CSV limit is the limit the API enforces', () => {
+    expect(DEFAULT_MAX_ASSETS).toBe(MAX_TICKERS)
+  })
+})
 
 describe('parsePortfolioCsv - well-formed input', () => {
   test('parses a plain ticker,weight file', () => {

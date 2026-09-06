@@ -21,14 +21,17 @@ import { Spinner } from '@/components/ui/spinner'
 import { AssetRow } from '@/components/asset-row'
 import { DateRangePicker } from '@/components/date-range-picker'
 import { parsePortfolioCsv } from '@/backend/utils/portfolioCsv'
+import { MAX_TICKERS } from '@/backend/utils/validation'
 import type { Asset, BacktestRequest } from '@/lib/types'
 
 // Mirrors the server-side rule in backend/utils/validation.js. Validating here
 // too means an obviously bad symbol never costs a network round trip.
 const TICKER_PATTERN = /^[A-Z]{1,5}$/
 
-// Must match MAX_TICKERS in backend/utils/validation.js, which the API enforces.
-const MAX_ASSETS = 50
+// The API enforces this same limit on both running and saving a portfolio, so
+// it is imported rather than repeated: a local copy drifting out of step is how
+// the form came to offer more holdings than either endpoint would accept.
+const MAX_ASSETS = MAX_TICKERS
 
 // Beyond this the sidebar grows taller than the results next to it, so the list
 // scrolls instead. Hand-entered portfolios rarely reach it; imported ones do.
