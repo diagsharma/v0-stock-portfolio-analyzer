@@ -12,7 +12,12 @@ const TICKER_PATTERN = /^[A-Z]{1,5}$/
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 const MIN_TICKERS = 1
-const MAX_TICKERS = 10
+
+// Raised from 10 once CSV import made large portfolios practical to enter. The
+// binding constraint is Yahoo's throttling of bursts from one IP, not the
+// arithmetic: at the market data layer's concurrency limit, 60 symbols fetch
+// prices and dividends in about four seconds, so 50 leaves real headroom.
+const MAX_TICKERS = 50
 
 /**
  * Format a Date as YYYY-MM-DD using UTC fields.
@@ -61,7 +66,7 @@ function validateTicker(ticker) {
 }
 
 /**
- * Validate a list of tickers, rejecting duplicates and enforcing the 1-10 range.
+ * Validate a list of tickers, rejecting duplicates and enforcing the size limit.
  *
  * @param {string[]} tickers
  * @returns {string[]} Normalized, de-duplicated symbols.

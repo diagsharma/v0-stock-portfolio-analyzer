@@ -26,7 +26,13 @@ import type { Asset, BacktestRequest } from '@/lib/types'
 // Mirrors the server-side rule in backend/utils/validation.js. Validating here
 // too means an obviously bad symbol never costs a network round trip.
 const TICKER_PATTERN = /^[A-Z]{1,5}$/
-const MAX_ASSETS = 10
+
+// Must match MAX_TICKERS in backend/utils/validation.js, which the API enforces.
+const MAX_ASSETS = 50
+
+// Beyond this the sidebar grows taller than the results next to it, so the list
+// scrolls instead. Hand-entered portfolios rarely reach it; imported ones do.
+const SCROLL_ASSETS_ABOVE = 8
 
 // A portfolio of ten tickers is a few hundred bytes; anything approaching this
 // is the wrong file, and reading it would just freeze the tab.
@@ -265,7 +271,13 @@ export function PortfolioForm({
                 Total: {totalWeight.toFixed(1)}%
               </span>
             </div>
-            <div className="space-y-3">
+            <div
+              className={`space-y-3 ${
+                assets.length > SCROLL_ASSETS_ABOVE
+                  ? 'max-h-96 overflow-y-auto pr-2'
+                  : ''
+              }`}
+            >
               {assets.map((asset) => (
                 <AssetRow
                   key={asset.id}
@@ -287,7 +299,9 @@ export function PortfolioForm({
                 className="flex-1"
               >
                 <Plus className="mr-2 h-4 w-4" />
-                {assets.length >= MAX_ASSETS ? 'Maximum 10 assets' : 'Add Asset'}
+                {assets.length >= MAX_ASSETS
+                  ? `Maximum ${MAX_ASSETS} assets`
+                  : 'Add Asset'}
               </Button>
               <Button
                 type="button"

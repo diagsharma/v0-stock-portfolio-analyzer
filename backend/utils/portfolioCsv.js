@@ -16,7 +16,9 @@
  */
 
 const TICKER_PATTERN = /^[A-Z]{1,5}$/
-const DEFAULT_MAX_ASSETS = 10
+
+// Kept in step with MAX_TICKERS in validation.js, which the API enforces.
+const DEFAULT_MAX_ASSETS = 50
 
 /** Delimiters seen in spreadsheet exports, in preference order on a tie. */
 const DELIMITERS = [',', ';', '\t']

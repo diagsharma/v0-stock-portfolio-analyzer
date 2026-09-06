@@ -4,6 +4,7 @@ const {
   validateTickers,
   validateDateRange,
   validateBacktestRequest,
+  MAX_TICKERS,
 } = require('./validation')
 const { ValidationError } = require('./errors')
 
@@ -59,14 +60,30 @@ describe('validateTickers', () => {
     expect(() => validateTickers([])).toThrow(/at least one ticker/i)
   })
 
-  test('rejects more than 10 tickers', () => {
-    const eleven = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']
-    expect(() => validateTickers(eleven)).toThrow(/at most 10/i)
+  /** n distinct valid symbols: AAA, AAB, AAC, ... */
+  function symbols(n) {
+    return Array.from(
+      { length: n },
+      (_, i) =>
+        'A' +
+        String.fromCharCode(65 + Math.floor(i / 26)) +
+        String.fromCharCode(65 + (i % 26))
+    )
+  }
+
+  test('rejects more than the maximum number of tickers', () => {
+    expect(() => validateTickers(symbols(MAX_TICKERS + 1))).toThrow(
+      new RegExp(`at most ${MAX_TICKERS}`, 'i')
+    )
   })
 
-  test('accepts exactly 10 tickers', () => {
-    const ten = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
-    expect(validateTickers(ten)).toHaveLength(10)
+  test('accepts exactly the maximum number of tickers', () => {
+    expect(validateTickers(symbols(MAX_TICKERS))).toHaveLength(MAX_TICKERS)
+  })
+
+  // CSV import made 40+ holdings realistic, so the cap is well clear of 10.
+  test('accepts a large imported portfolio', () => {
+    expect(validateTickers(symbols(48))).toHaveLength(48)
   })
 
   test('rejects duplicates, including differing case', () => {

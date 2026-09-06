@@ -134,10 +134,29 @@ describe('parsePortfolioCsv - rejections', () => {
   })
 
   test('rejects more holdings than the form allows', () => {
-    const rows = Array.from({ length: 11 }, (_, i) => `AA${String.fromCharCode(65 + i)},9`)
+    const rows = Array.from(
+      { length: 51 },
+      (_, i) =>
+        `A${String.fromCharCode(65 + Math.floor(i / 26))}${String.fromCharCode(65 + (i % 26))},2`
+    )
     const { errors } = parsePortfolioCsv(rows.join('\n'))
 
-    expect(errors[0]).toMatch(/11 holdings.*maximum is 10/)
+    expect(errors[0]).toMatch(/51 holdings.*maximum is 50/)
+  })
+
+  // The cap that mattered: a 48-line brokerage export used to be refused.
+  test('accepts a large imported portfolio', () => {
+    const rows = Array.from(
+      { length: 48 },
+      (_, i) =>
+        `A${String.fromCharCode(65 + Math.floor(i / 26))}${String.fromCharCode(65 + (i % 26))}`
+    )
+    const { assets, errors } = parsePortfolioCsv(rows.join('\n'))
+
+    expect(errors).toEqual([])
+    expect(assets).toHaveLength(48)
+    // An even split across 48 must still land on exactly 100.
+    expect(assets.reduce((sum, a) => sum + a.weight, 0)).toBeCloseTo(100, 10)
   })
 
   test('honours a custom maxAssets', () => {

@@ -24,3 +24,6 @@ out/
 # Personal portfolio files kept out of the repo
 my-portfolio.csv
 *.local.csv
+
+.vercel
+.env*
