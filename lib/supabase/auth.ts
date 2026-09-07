@@ -12,7 +12,7 @@ import { createClient } from './server'
  *
  * Narrow with `if ('error' in auth) return auth.error` before using the rest.
  */
-export async function requireUser() {
+export async function requireUser(unauthenticatedMessage = 'Sign in to save portfolios') {
   const supabase = await createClient()
 
   if (!supabase) {
@@ -25,7 +25,7 @@ export async function requireUser() {
 
   if (!data.user) {
     return {
-      error: NextResponse.json({ error: 'Sign in to save portfolios' }, { status: 401 }),
+      error: NextResponse.json({ error: unauthenticatedMessage }, { status: 401 }),
     }
   }
 

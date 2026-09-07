@@ -61,6 +61,22 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans antialiased">
+        {/*
+          Chrome fires beforeinstallprompt as soon as a page meets the install
+          criteria, which is routinely before React has hydrated and attached
+          its own listener. Catching it here, during parse, is what stops the
+          event being lost -- and since preventDefault() also suppresses
+          Chrome full-screen install UI, losing it means no prompt at all.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){window.__installPrompt=null;" +
+              "addEventListener('beforeinstallprompt',function(e){" +
+              "e.preventDefault();window.__installPrompt=e;" +
+              "dispatchEvent(new Event('installpromptready'))})})()",
+          }}
+        />
         {children}
         <Toaster />
         <InstallPrompt />

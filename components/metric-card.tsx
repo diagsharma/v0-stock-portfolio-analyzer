@@ -10,16 +10,19 @@ interface MetricCardProps {
 
 export function MetricCard({ title, value, description, trend = 'neutral' }: MetricCardProps) {
   return (
-    <Card className="bg-card border-border">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+    // Two of these sit side by side from the narrowest screen up, which leaves
+    // roughly 110px of content on a small phone. The padding and the value
+    // scale down to fit rather than letting figures spill out of the card.
+    <Card className="gap-2 border-border bg-card py-4 sm:gap-3 sm:py-6">
+      <CardHeader className="px-4 pb-0 sm:px-6">
+        <CardTitle className="text-xs font-medium text-muted-foreground sm:text-sm">
           {title}
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 sm:px-6">
         <div
           className={cn(
-            'text-2xl font-bold',
+            'text-xl leading-tight font-bold tabular-nums break-words sm:text-2xl',
             trend === 'positive' && 'text-success',
             trend === 'negative' && 'text-destructive',
             trend === 'neutral' && 'text-foreground'

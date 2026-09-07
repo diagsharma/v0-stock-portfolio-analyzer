@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { Download, Share, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -10,7 +10,10 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
+type InstallWindow = Window & { __installPrompt?: BeforeInstallPromptEvent | null }
+
 const DISMISSED_KEY = 'backtester:install-dismissed'
+const READY_EVENT = 'installpromptready'
 
 // Safari in private mode throws on storage access rather than returning null.
 function readDismissed() {
@@ -43,12 +46,43 @@ function isIosSafari() {
   return /iphone|ipad|ipod/i.test(ua) && !/crios|fxios|edgios/i.test(ua)
 }
 
-// These read the browser, not React state, and cannot change during a visit.
-// useSyncExternalStore is how they reach render without risking a hydration
-// mismatch: the server snapshot hides the prompt, and the client re-reads it.
+// The deferred event lives on window rather than in React state, because the
+// inline script in app/layout.tsx captures it during parse -- long before this
+// component mounts. useSyncExternalStore is how that reaches render.
+function subscribeToInstallPrompt(onStoreChange: () => void) {
+  const w = window as InstallWindow
+
+  // Only reached when the browser decides the page is installable after this
+  // component has already mounted; the inline script handles every other case.
+  const onBeforeInstallPrompt = (event: Event) => {
+    event.preventDefault()
+    w.__installPrompt = event as BeforeInstallPromptEvent
+    onStoreChange()
+  }
+
+  const onInstalled = () => {
+    w.__installPrompt = null
+    onStoreChange()
+  }
+
+  window.addEventListener(READY_EVENT, onStoreChange)
+  window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
+  window.addEventListener('appinstalled', onInstalled)
+
+  return () => {
+    window.removeEventListener(READY_EVENT, onStoreChange)
+    window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt)
+    window.removeEventListener('appinstalled', onInstalled)
+  }
+}
+
+// These read the browser, not React state. The server snapshots hide the
+// prompt, so the markup matches until the client re-reads them on hydration.
 const noopSubscribe = () => () => {}
 const alwaysSuppressed = () => true
 const neverIos = () => false
+const readInstallPrompt = () => (window as InstallWindow).__installPrompt ?? null
+const noInstallPrompt = () => null
 
 function suppressedSnapshot() {
   return isInstalled() || readDismissed()
@@ -57,30 +91,13 @@ function suppressedSnapshot() {
 export function InstallPrompt() {
   const suppressed = useSyncExternalStore(noopSubscribe, suppressedSnapshot, alwaysSuppressed)
   const iosEligible = useSyncExternalStore(noopSubscribe, isIosSafari, neverIos)
+  const deferred = useSyncExternalStore(
+    subscribeToInstallPrompt,
+    readInstallPrompt,
+    noInstallPrompt
+  )
 
-  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
   const [closed, setClosed] = useState(false)
-
-  useEffect(() => {
-    const onBeforeInstallPrompt = (event: Event) => {
-      // Suppress the browser's own mini-infobar so ours is the only ask.
-      event.preventDefault()
-      setDeferred(event as BeforeInstallPromptEvent)
-    }
-
-    const onInstalled = () => {
-      setDeferred(null)
-      setClosed(true)
-    }
-
-    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
-    window.addEventListener('appinstalled', onInstalled)
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt)
-      window.removeEventListener('appinstalled', onInstalled)
-    }
-  }, [])
 
   const dismiss = () => {
     rememberDismissed()
@@ -89,10 +106,14 @@ export function InstallPrompt() {
 
   const install = async () => {
     if (!deferred) return
+
     await deferred.prompt()
     await deferred.userChoice
+
     // The event is single use whichever way the user answered.
-    setDeferred(null)
+    const w = window as InstallWindow
+    w.__installPrompt = null
+    window.dispatchEvent(new Event(READY_EVENT))
     setClosed(true)
   }
 

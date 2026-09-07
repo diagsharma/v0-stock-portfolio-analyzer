@@ -4,7 +4,7 @@
  * Bump VERSION whenever the caching rules below change: the activate handler
  * deletes every cache that does not match, which is what evicts stale entries.
  */
-const VERSION = 'v1'
+const VERSION = 'v2'
 const PRECACHE = `backtester-precache-${VERSION}`
 const RUNTIME = `backtester-runtime-${VERSION}`
 

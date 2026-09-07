@@ -246,11 +246,21 @@ export async function POST(request: Request) {
     // a missing or misconfigured database must never fail a backtest.
     const supabase = await createClient()
 
-    if (supabase) {
+    // History belongs to an account. A run records the portfolio behind it, so
+    // there is nobody to scope an anonymous run to -- it is computed and
+    // returned, just never stored.
+    const { data: session } = supabase
+      ? await supabase.auth.getUser()
+      : { data: { user: null } }
+
+    if (supabase && session.user) {
       try {
         const { data } = await supabase
           .from('backtests')
           .insert({
+            // From the session, never the request body, so a caller cannot
+            // write a run into someone else's history.
+            user_id: session.user.id,
             name: result.name,
             assets: result.assets,
             start_date: startDate,

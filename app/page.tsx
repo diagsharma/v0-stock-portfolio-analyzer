@@ -138,9 +138,13 @@ export default function Home() {
               canSave={Boolean(user)}
             />
             {user && (
-              <SavedPortfolios onLoad={loadPortfolio} loadedId={form.loadedId} />
+              <>
+                <SavedPortfolios onLoad={loadPortfolio} loadedId={form.loadedId} />
+                {/* History is per account, so it only means anything once
+                    there is an account to scope it to. */}
+                <BacktestHistory onSelect={setRecord} selectedId={record?.id} />
+              </>
             )}
-            <BacktestHistory onSelect={setRecord} selectedId={record?.id} />
           </aside>
 
           <section className="space-y-6">
