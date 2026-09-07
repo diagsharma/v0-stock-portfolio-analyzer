@@ -106,7 +106,7 @@ export default function Home() {
     record && record.status === 'completed' && record.metrics && record.portfolioHistory && record.assetReturns
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="min-h-dvh bg-background">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <header className="mb-8">
           <div className="mb-2 flex items-start justify-between gap-4">

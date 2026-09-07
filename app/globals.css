@@ -129,3 +129,23 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer base {
+  body {
+    /* layout.tsx sets viewportFit: 'cover' so the dark background reaches the
+       screen edges. That puts content under the notch, the rounded corners and
+       the home indicator, so the insets are paid back here. The status bar is
+       excluded: appleWebApp.statusBarStyle 'black' already reserves that strip. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Removes the grey flash on tap, which reads as a browser artefact once the
+     app is running full screen from the home screen. */
+  @media (display-mode: standalone) {
+    body {
+      -webkit-tap-highlight-color: transparent;
+    }
+  }
+}

@@ -11,7 +11,9 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     // Everything except static assets and image files, which never carry a
-    // session and would only pay the refresh cost for nothing.
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    // session and would only pay the refresh cost for nothing. The service
+    // worker and manifest are excluded on the same grounds: the browser
+    // revalidates both on every load, and neither is ever a signed-in request.
+    '/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }
