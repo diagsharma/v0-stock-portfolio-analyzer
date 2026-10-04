@@ -25,6 +25,22 @@ export const metadata: Metadata = {
   title: 'Portfolio Backtester',
   description: 'Backtest your portfolio allocation strategy with historical data',
   generator: 'v0.app',
+  // What a shared link shows on social media. The image comes from
+  // app/opengraph-image.tsx; on Vercel, Next resolves its absolute URL from
+  // the production domain.
+  openGraph: {
+    type: 'website',
+    siteName: 'Portfolio Backtester',
+    title: 'Portfolio Backtester: see how your stock picks would have done',
+    description:
+      'Enter up to 50 US stocks and a date range to see real historical returns, risk and dividends, compared with the S&P 500. Free.',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Portfolio Backtester: see how your stock picks would have done',
+    description:
+      'Backtest any US portfolio against the S&P 500, with dividends reinvested. Free.',
+  },
   applicationName: 'Portfolio Backtester',
   appleWebApp: {
     capable: true,

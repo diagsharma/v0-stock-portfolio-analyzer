@@ -33,6 +33,34 @@ const formatPercent = (value: number, showSign = true) => {
   return `${sign}${value.toFixed(2)}%`
 }
 
+// Plain-language help shown on hover, written for first-time investors.
+const METRIC_INFO = {
+  totalReturn: {
+    what: 'How much your money grew or shrank over the whole period, with dividends reinvested. +50% means $10,000 became $15,000.',
+    use: 'Compare it with the S&P 500 figure underneath. If the index did better, simply buying an index fund would have beaten these picks.',
+  },
+  dividendYield: {
+    what: 'Cash that companies paid to shareholders, shown as a yearly percentage of what the portfolio was worth. Here it is reinvested to buy more shares.',
+    use: 'A higher yield means more income without selling anything. The line underneath shows how much of your total return came from dividends.',
+  },
+  annualizedReturn: {
+    what: 'Your average growth per year (CAGR), as if the portfolio had grown at a steady rate. It lets you compare periods of different lengths.',
+    use: 'Compare it with other options, like a savings account paying 4% a year. US stocks have historically averaged roughly 10% a year.',
+  },
+  volatility: {
+    what: 'How much the value swung up and down, measured over a year. A higher number means a bumpier ride.',
+    use: 'Ask yourself whether you could stay calm through swings this size. Mixing in bonds or other sectors usually lowers it.',
+  },
+  sharpeRatio: {
+    what: 'How much return you earned for each unit of risk taken, after subtracting what a risk-free investment (assumed 2% a year) would have paid.',
+    use: 'Use it to compare portfolios: higher is better. Below 0 means a risk-free account would have done better, around 1 is good and above 2 is excellent.',
+  },
+  maxDrawdown: {
+    what: 'The biggest fall from a high point to a later low point. −35% means $10,000 dropped to $6,500 at its worst before recovering.',
+    use: 'This is the loss you would have had to sit through. If a drop like this would make you sell in a panic, consider a less risky mix.',
+  },
+}
+
 const benchmarkName = (symbol?: string) =>
   !symbol || symbol === 'SPY' ? 'S&P 500' : symbol
 
@@ -85,6 +113,7 @@ export function ResultsDashboard({
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <MetricCard
           title="Total Return"
+          info={METRIC_INFO.totalReturn}
           value={formatPercent(metrics.totalReturn)}
           description={
             benchmarkMetrics
@@ -95,6 +124,7 @@ export function ResultsDashboard({
         />
         <MetricCard
           title="Dividend Yield"
+          info={METRIC_INFO.dividendYield}
           value={
             dividendYield === null || dividendYield === undefined
               ? '—'
@@ -109,6 +139,7 @@ export function ResultsDashboard({
         />
         <MetricCard
           title="Annualized Return"
+          info={METRIC_INFO.annualizedReturn}
           value={formatPercent(metrics.annualizedReturn)}
           description={
             benchmarkMetrics
@@ -119,11 +150,13 @@ export function ResultsDashboard({
         />
         <MetricCard
           title="Volatility"
+          info={METRIC_INFO.volatility}
           value={formatPercent(metrics.volatility, false)}
           description="Annualized std dev"
         />
         <MetricCard
           title="Sharpe Ratio"
+          info={METRIC_INFO.sharpeRatio}
           value={metrics.sharpeRatio.toFixed(2)}
           description="Risk-adjusted return"
           trend={
@@ -136,6 +169,7 @@ export function ResultsDashboard({
         />
         <MetricCard
           title="Max Drawdown"
+          info={METRIC_INFO.maxDrawdown}
           value={`${metrics.maxDrawdown.toFixed(2)}%`}
           description={
             benchmarkMetrics

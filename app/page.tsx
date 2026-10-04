@@ -5,6 +5,7 @@ import useSWR, { useSWRConfig } from 'swr'
 import { PortfolioForm } from '@/components/portfolio-form'
 import { ResultsDashboard } from '@/components/results-dashboard'
 import { SavedPortfolios } from '@/components/saved-portfolios'
+import { ShareBacktest } from '@/components/share-backtest'
 import { UserMenu } from '@/components/auth/user-menu'
 import { useUser } from '@/components/auth/use-user'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -148,6 +149,13 @@ export default function Home() {
                 <AlertTitle>Error</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
+            )}
+
+            {showResults && (
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-foreground">Results</h2>
+                <ShareBacktest record={record} />
+              </div>
             )}
 
             {showResults && (
