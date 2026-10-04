@@ -51,8 +51,8 @@ export function SavedPortfolios({ onLoad, loadedId }: SavedPortfoliosProps) {
           Saved Portfolios
         </CardTitle>
         <CardDescription>
-          Allocations saved to your account. Your most recent one fills the form
-          when you come back.
+          Click a portfolio to load it into the form. Your most recent one fills
+          the form when you come back.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -69,53 +69,59 @@ export function SavedPortfolios({ onLoad, loadedId }: SavedPortfoliosProps) {
         {portfolios.length > 0 && (
           <ScrollArea className="max-h-[280px] pr-3">
             <ul className="space-y-2">
-              {portfolios.map((portfolio) => (
-                <li
-                  key={portfolio.id}
-                  className={`flex items-start justify-between gap-2 rounded-lg border p-3 ${
-                    portfolio.id === loadedId
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border bg-secondary/40'
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-foreground">
-                      {portfolio.name}
-                      {portfolio.id === loadedId && (
-                        <span className="ml-2 text-xs font-normal text-primary">
-                          In the form
-                        </span>
-                      )}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {portfolio.assets
-                        .map((asset) => `${asset.symbol} ${asset.weight}%`)
-                        .join(' · ')}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button
+              {portfolios.map((portfolio) => {
+                const isLoaded = portfolio.id === loadedId
+
+                return (
+                  <li
+                    key={portfolio.id}
+                    className={`flex items-start gap-1 rounded-lg border p-1 ${
+                      isLoaded
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border bg-secondary/40'
+                    }`}
+                  >
+                    {/* The whole row switches the form to this portfolio, so
+                        clicking the name works and not just a small button.
+                        It stays clickable when already loaded, so it also
+                        restores the saved values after the form was edited. */}
+                    <button
                       type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onLoad(portfolio)}
-                      disabled={portfolio.id === loadedId}
+                      onClick={() => {
+                        onLoad(portfolio)
+                        toast.success(`Loaded "${portfolio.name}"`)
+                      }}
+                      aria-current={isLoaded ? 'true' : undefined}
+                      title={`Load ${portfolio.name}`}
+                      className="min-w-0 flex-1 cursor-pointer rounded-md p-2 text-left transition-colors hover:bg-secondary"
                     >
-                      Load
-                    </Button>
+                      <p className="truncate font-medium text-foreground">
+                        {portfolio.name}
+                        {isLoaded && (
+                          <span className="ml-2 text-xs font-normal text-primary">
+                            In the form
+                          </span>
+                        )}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {portfolio.assets
+                          .map((asset) => `${asset.symbol} ${asset.weight}%`)
+                          .join(' · ')}
+                      </p>
+                    </button>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       aria-label={`Delete ${portfolio.name}`}
                       onClick={() => handleDelete(portfolio.id)}
-                      className="text-muted-foreground hover:text-destructive"
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                )
+              })}
             </ul>
           </ScrollArea>
         )}

@@ -4,7 +4,6 @@ import { useState } from 'react'
 import useSWR, { useSWRConfig } from 'swr'
 import { PortfolioForm } from '@/components/portfolio-form'
 import { ResultsDashboard } from '@/components/results-dashboard'
-import { BacktestHistory } from '@/components/backtest-history'
 import { SavedPortfolios } from '@/components/saved-portfolios'
 import { UserMenu } from '@/components/auth/user-menu'
 import { useUser } from '@/components/auth/use-user'
@@ -138,12 +137,7 @@ export default function Home() {
               canSave={Boolean(user)}
             />
             {user && (
-              <>
-                <SavedPortfolios onLoad={loadPortfolio} loadedId={form.loadedId} />
-                {/* History is per account, so it only means anything once
-                    there is an account to scope it to. */}
-                <BacktestHistory onSelect={setRecord} selectedId={record?.id} />
-              </>
+              <SavedPortfolios onLoad={loadPortfolio} loadedId={form.loadedId} />
             )}
           </aside>
 
